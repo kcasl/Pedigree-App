@@ -615,15 +615,11 @@ export function PedigreeScreen({
         }
       } else if (action.kind === 'sibling') {
         const base = next[action.ofId];
-        if (base?.fatherId || base?.motherId) {
-          next[person.id] = {
-            ...next[person.id],
-            fatherId: base.fatherId,
-            motherId: base.motherId,
-          };
-        } else {
-          Alert.alert('형제 추가 불가', '부모 정보가 있어야 형제를 추가할 수 있어요.');
-        }
+        next[person.id] = {
+          ...next[person.id],
+          ...(base?.fatherId ? { fatherId: base.fatherId } : {}),
+          ...(base?.motherId ? { motherId: base.motherId } : {}),
+        };
       } else if (action.kind === 'child') {
         const parent = next[action.parentId];
         if (parent) {
@@ -847,6 +843,7 @@ export function PedigreeScreen({
                     savedOffsetX={nodeXOffsetById[n.id] ?? 0}
                     canvasScale={scale}
                     highlighted={layout.highlightIds.has(n.id)}
+                    generation={n.generation}
                     onPress={() => openActionsFor(n.id)}
                     onOffsetChange={offsetX => handleNodeOffsetChange(n.id, offsetX)}
                     onDragActiveChange={handleNodeDragActive}

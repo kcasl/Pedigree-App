@@ -156,15 +156,11 @@ export function buildStandardPedigreeLayout(
   const slots = slotIdsForView(opts.view);
   const focalId = focalBloodId(opts.view, slots);
   const uw = unitW(opts);
-  const isSelfView = opts.view === 'self';
-
-  const sibParentFather = isSelfView ? slots.father : slots.gf;
-  const sibParentMother = isSelfView ? slots.mother : slots.gm;
 
   const siblingCouples = collectSiblingCouples(
     people,
-    sibParentFather,
-    sibParentMother,
+    slots.father,
+    slots.mother,
     slots,
   );
 
@@ -181,11 +177,10 @@ export function buildStandardPedigreeLayout(
   const nodeById: Record<PersonId, PositionedNode> = {};
   const highlightIds = new Set<PersonId>([focalId]);
 
-  const ancestorRows = isSelfView ? 3 : 2;
+  const ancestorRows = 2;
   const ySibling = opts.padding + opts.rowGap * ancestorRows;
   const yParent = ySibling - opts.rowGap;
   const yGrand = yParent - opts.rowGap;
-  const yGreat = yGrand - opts.rowGap;
 
   const focalCenterX = coupleCenterX(siblingRowStartX, focalIndex, opts);
 
@@ -205,68 +200,29 @@ export function buildStandardPedigreeLayout(
     );
   });
 
-  if (isSelfView) {
-    if (people[slots.father]) {
-      placeCoupleNode(
-        nodes,
-        nodeById,
-        slots.father,
-        people[slots.mother] ? slots.mother : undefined,
-        focalCenterX - uw / 2,
-        yParent,
-        -1,
-        opts,
-      );
-    }
-    if (people[slots.gf]) {
-      placeCoupleNode(
-        nodes,
-        nodeById,
-        slots.gf,
-        people[slots.gm] ? slots.gm : undefined,
-        focalCenterX - uw / 2,
-        yGrand,
-        -2,
-        opts,
-      );
-    }
-    if (people[slots.ggf]) {
-      placeCoupleNode(
-        nodes,
-        nodeById,
-        slots.ggf,
-        people[slots.ggm] ? slots.ggm : undefined,
-        focalCenterX - uw / 2,
-        yGreat,
-        -3,
-        opts,
-      );
-    }
-  } else {
-    if (people[slots.gf]) {
-      placeCoupleNode(
-        nodes,
-        nodeById,
-        slots.gf,
-        people[slots.gm] ? slots.gm : undefined,
-        focalCenterX - uw / 2,
-        yParent,
-        -1,
-        opts,
-      );
-    }
-    if (people[slots.ggf]) {
-      placeCoupleNode(
-        nodes,
-        nodeById,
-        slots.ggf,
-        people[slots.ggm] ? slots.ggm : undefined,
-        focalCenterX - uw / 2,
-        yGrand,
-        -2,
-        opts,
-      );
-    }
+  if (people[slots.father]) {
+    placeCoupleNode(
+      nodes,
+      nodeById,
+      slots.father,
+      people[slots.mother] ? slots.mother : undefined,
+      focalCenterX - uw / 2,
+      yParent,
+      -1,
+      opts,
+    );
+  }
+  if (people[slots.gf]) {
+    placeCoupleNode(
+      nodes,
+      nodeById,
+      slots.gf,
+      people[slots.gm] ? slots.gm : undefined,
+      focalCenterX - uw / 2,
+      yGrand,
+      -2,
+      opts,
+    );
   }
 
   const yChild = ySibling + opts.rowGap;

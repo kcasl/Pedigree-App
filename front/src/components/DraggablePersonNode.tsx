@@ -21,6 +21,7 @@ type Props = {
   onDragActiveChange: (active: boolean) => void;
   style?: ViewStyle;
   highlighted?: boolean;
+  generation?: number;
 };
 
 export function DraggablePersonNode({
@@ -34,6 +35,7 @@ export function DraggablePersonNode({
   onDragActiveChange,
   style,
   highlighted,
+  generation,
 }: Props) {
   const offsetX = useSharedValue(savedOffsetX);
   const dragStart = useSharedValue(savedOffsetX);
@@ -87,6 +89,7 @@ export function DraggablePersonNode({
           person={person}
           onPress={() => {}}
           highlighted={highlighted}
+          generation={generation}
           style={{ width, maxWidth: width, minWidth: width }}
         />
       </Animated.View>

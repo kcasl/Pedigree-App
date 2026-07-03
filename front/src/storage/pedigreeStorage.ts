@@ -6,6 +6,7 @@ import {
   createViewTemplate,
   isLegacyFlatPedigree,
   migrateLegacyToStore,
+  reconcileStore,
   slotIdsForView,
 } from '../utils/standardTemplate';
 
@@ -41,7 +42,7 @@ function parseStore(raw: string | null): PedigreeStore | null {
 
     const selfKey = slotIdsForView('self').selfId;
     if (!store.views.self[selfKey]) return null;
-    return store;
+    return reconcileStore(store);
   } catch {
     return null;
   }

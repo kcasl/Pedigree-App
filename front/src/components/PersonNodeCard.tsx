@@ -16,14 +16,18 @@ type Props = {
   onPress: () => void;
   style?: ViewStyle;
   highlighted?: boolean;
+  generation?: number;
 };
 
-export function PersonNodeCard({ label, person, onPress, style, highlighted }: Props) {
+export function PersonNodeCard({ label, person, onPress, style, highlighted, generation = 0 }: Props) {
+  const rowBg = ui.generationSurface(generation);
+
   return (
     <Pressable
       onPress={onPress}
       style={({ pressed }) => [
         styles.card,
+        { backgroundColor: rowBg },
         highlighted && styles.highlighted,
         pressed && styles.pressed,
         !person && styles.placeholder,
@@ -80,7 +84,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#f1f8e9',
   },
   placeholder: {
-    backgroundColor: ui.color.surfaceMuted,
+    opacity: 0.92,
     borderStyle: 'dashed',
     borderColor: ui.color.border,
   },
