@@ -8,20 +8,23 @@ import {
   ViewStyle,
 } from 'react-native';
 import type { Person } from '../types/pedigree';
+import { ui } from '../theme/ui';
 
 type Props = {
   label: string;
   person?: Person;
   onPress: () => void;
   style?: ViewStyle;
+  highlighted?: boolean;
 };
 
-export function PersonNodeCard({ label, person, onPress, style }: Props) {
+export function PersonNodeCard({ label, person, onPress, style, highlighted }: Props) {
   return (
     <Pressable
       onPress={onPress}
       style={({ pressed }) => [
         styles.card,
+        highlighted && styles.highlighted,
         pressed && styles.pressed,
         !person && styles.placeholder,
         style,
@@ -61,20 +64,25 @@ export function PersonNodeCard({ label, person, onPress, style }: Props) {
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: 16,
-    backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
+    borderRadius: 14,
+    backgroundColor: ui.color.surface,
+    borderWidth: 1.5,
+    borderColor: ui.color.border,
     padding: 12,
-    // width는 레이아웃 엔진에서 강제로 지정(세대/가로 배치에 따라 자동 조절)
+    ...ui.shadow.card,
   },
   pressed: {
-    opacity: 0.85,
+    opacity: 0.88,
+  },
+  highlighted: {
+    borderWidth: 3,
+    borderColor: '#2e7d32',
+    backgroundColor: '#f1f8e9',
   },
   placeholder: {
-    backgroundColor: '#ffffff',
+    backgroundColor: ui.color.surfaceMuted,
     borderStyle: 'dashed',
-    borderColor: '#cbd5e1',
+    borderColor: ui.color.border,
   },
   header: {
     flexDirection: 'row',
@@ -82,14 +90,15 @@ const styles = StyleSheet.create({
   },
   badge: {
     fontSize: 12,
-    color: '#374151',
-    backgroundColor: '#f3f4f6',
+    color: ui.color.label,
+    backgroundColor: ui.color.badgeBg,
     borderWidth: 1,
-    borderColor: '#e5e7eb',
+    borderColor: ui.color.borderLight,
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 999,
     overflow: 'hidden',
+    fontWeight: ui.weight.label,
   },
   content: {
     marginTop: 10,
@@ -100,31 +109,33 @@ const styles = StyleSheet.create({
     width: 78,
     height: 78,
     borderRadius: 39,
-    backgroundColor: '#f3f4f6',
+    backgroundColor: ui.color.badgeBg,
+    borderWidth: 1,
+    borderColor: ui.color.borderLight,
   },
   avatarFallback: {
     width: 78,
     height: 78,
     borderRadius: 39,
-    backgroundColor: '#f3f4f6',
+    backgroundColor: ui.color.badgeBg,
     borderWidth: 1,
-    borderColor: '#e5e7eb',
+    borderColor: ui.color.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
   avatarFallbackText: {
-    color: '#111827',
+    color: ui.color.text,
     fontSize: 24,
-    fontWeight: '700',
+    fontWeight: ui.weight.title,
   },
   name: {
-    color: '#111827',
+    color: ui.color.text,
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: ui.weight.heading,
   },
   sub: {
-    color: '#6b7280',
+    color: ui.color.textSecondary,
     fontSize: 12,
+    fontWeight: ui.weight.body,
   },
 });
-

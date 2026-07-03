@@ -1,6 +1,32 @@
-import React from 'react';
+/**
+ * 족보 연결선 — 일반 가계도(pedigree chart) 방식
+ *
+ *   [조모]──[조부]     [외조모]──[외조부]
+ *            \              /
+ *         [모]────[부]
+ *               │
+ *              [나]
+ *
+ * - 부부: 카드 하단 가로선 (슬롯 1↔2, 3↔4 자동 인식)
+ * - 부모→자식: 부부 중앙에서 세로 → 형제 rail → 각 자식 세로
+ * - 부모가 좌우 다른 가지(1번·2번)여도 자식 연결은 T 형태 유지
+ *
+ * 튜닝: EDGE_DRAW_CONFIG
+ */
+
+import React, { useMemo } from 'react';
 import { StyleSheet, View } from 'react-native';
+import { ui } from '../theme/ui';
 import type { Edge, PositionedNode } from '../utils/pedigreeLayout';
+
+export const EDGE_DRAW_CONFIG = {
+  enabled: true,
+  spouseLineOffset: 6,
+  trunkGap: 18,
+  childGap: 14,
+  strokeWidth: 2.5,
+  color: ui.color.line,
+} as const;
 
 type Props = {
   edges: Edge[];
@@ -10,369 +36,299 @@ type Props = {
   color?: string;
 };
 
-function lineStyle(x: number, y: number, w: number, h: number, color: string, strokeWidth: number) {
+type CoupleGroup = {
+  kind: 'couple';
+  leftId: string;
+  rightId: string;
+  childIds: string[];
+};
+
+type SingleGroup = {
+  kind: 'single';
+  parentId: string;
+  childIds: string[];
+};
+
+type ParentGroup = CoupleGroup | SingleGroup;
+
+function bar(
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  color: string,
+  stroke: number,
+) {
   return {
     position: 'absolute' as const,
     left: x,
     top: y,
-    width: w,
-    height: h,
+    width: Math.max(stroke, w),
+    height: Math.max(stroke, h),
     backgroundColor: color,
-    borderRadius: strokeWidth / 2,
+    borderRadius: stroke / 2,
   };
 }
 
-function pairKey(aId: string, bId: string): string {
-  return aId < bId ? `${aId}__${bId}` : `${bId}__${aId}`;
+function cx(n: PositionedNode): number {
+  return n.x + n.width / 2;
+}
+
+function bottom(n: PositionedNode): number {
+  return n.y + n.height;
+}
+
+function top(n: PositionedNode): number {
+  return n.y;
+}
+
+function pairKey(a: string, b: string): string {
+  return a < b ? `${a}__${b}` : `${b}__${a}`;
+}
+
+function isLayoutCouple(a: PositionedNode, b: PositionedNode): boolean {
+  if (a.generation !== b.generation) return false;
+  return a.partnerId === b.id || b.partnerId === a.id;
+}
+
+function pickCouple(
+  parentIds: string[],
+  spouseKeys: Set<string>,
+  nodeById: Record<string, PositionedNode>,
+): { couple: [string, string] | null; rest: string[] } {
+  if (parentIds.length < 2) return { couple: null, rest: parentIds };
+
+  // 한 자식의 부·모(엣지 2개)는 거리와 무관하게 항상 부부로 연결
+  if (parentIds.length === 2) {
+    const a = nodeById[parentIds[0]];
+    const b = nodeById[parentIds[1]];
+    if (a && b) {
+      const left = cx(a) <= cx(b) ? parentIds[0] : parentIds[1];
+      const right = left === parentIds[0] ? parentIds[1] : parentIds[0];
+      return { couple: [left, right], rest: [] };
+    }
+  }
+
+  for (let i = 0; i < parentIds.length; i++) {
+    for (let j = i + 1; j < parentIds.length; j++) {
+      const a = nodeById[parentIds[i]];
+      const b = nodeById[parentIds[j]];
+      if (!a || !b) continue;
+      const key = pairKey(parentIds[i], parentIds[j]);
+      if (spouseKeys.has(key) || isLayoutCouple(a, b)) {
+        const left = cx(a) <= cx(b) ? parentIds[i] : parentIds[j];
+        const right = left === parentIds[i] ? parentIds[j] : parentIds[i];
+        const rest = parentIds.filter(id => id !== left && id !== right);
+        return { couple: [left, right], rest };
+      }
+    }
+  }
+  return { couple: null, rest: parentIds };
+}
+
+function buildGroups(
+  edges: Edge[],
+  spousePairs: Array<{ aId: string; bId: string }>,
+  nodeById: Record<string, PositionedNode>,
+): { groups: ParentGroup[]; drawnCouples: Set<string> } {
+  const byChild = new Map<string, Set<string>>();
+  for (const { parentId, childId } of edges) {
+    const set = byChild.get(childId) ?? new Set();
+    set.add(parentId);
+    byChild.set(childId, set);
+  }
+
+  const spouseKeys = new Set(spousePairs.map(p => pairKey(p.aId, p.bId)));
+  const groupMap = new Map<string, ParentGroup>();
+  const drawnCouples = new Set<string>();
+
+  const addSingle = (parentId: string, childId: string) => {
+    const k = `s:${parentId}`;
+    const g = groupMap.get(k);
+    if (g?.kind === 'single') g.childIds.push(childId);
+    else groupMap.set(k, { kind: 'single', parentId, childIds: [childId] });
+  };
+
+  for (const [childId, parentSet] of byChild) {
+    let remaining = Array.from(parentSet);
+    const { couple, rest } = pickCouple(remaining, spouseKeys, nodeById);
+
+    if (couple) {
+      const [leftId, rightId] = couple;
+      const k = `c:${pairKey(leftId, rightId)}`;
+      drawnCouples.add(pairKey(leftId, rightId));
+      const g = groupMap.get(k);
+      if (g?.kind === 'couple') g.childIds.push(childId);
+      else groupMap.set(k, { kind: 'couple', leftId, rightId, childIds: [childId] });
+      remaining = rest;
+    }
+
+    for (const pid of remaining) addSingle(pid, childId);
+  }
+
+  return { groups: Array.from(groupMap.values()), drawnCouples };
+}
+
+function railY(parentBottom: number, childTop: number, cfg: typeof EDGE_DRAW_CONFIG): number {
+  const ideal = parentBottom + cfg.spouseLineOffset + cfg.trunkGap;
+  const maxY = childTop - cfg.childGap;
+  if (ideal <= maxY) return ideal;
+  return (parentBottom + childTop) / 2;
+}
+
+type Ctx = {
+  out: React.ReactNode[];
+  nodeById: Record<string, PositionedNode>;
+  stroke: number;
+  color: string;
+  cfg: typeof EDGE_DRAW_CONFIG;
+};
+
+function drawCouple(group: CoupleGroup, ctx: Ctx): void {
+  const { out, nodeById, stroke, color, cfg } = ctx;
+  const left = nodeById[group.leftId];
+  const right = nodeById[group.rightId];
+  if (!left || !right) return;
+
+  const children = group.childIds
+    .map(id => nodeById[id])
+    .filter(Boolean)
+    .sort((a, b) => cx(a) - cx(b)) as PositionedNode[];
+  if (!children.length) return;
+
+  const leftEdge = left.x + left.width;
+  const rightEdge = right.x;
+  const baseY = Math.max(bottom(left), bottom(right)) + cfg.spouseLineOffset;
+  const midX = (leftEdge + rightEdge) / 2;
+
+  const childXs = children.map(cx);
+  const minChildX = Math.min(...childXs);
+  const maxChildX = Math.max(...childXs);
+  const minChildTop = Math.min(...children.map(top));
+
+  const key = pairKey(group.leftId, group.rightId);
+
+  out.push(
+    <View key={`c_h_${key}`} style={bar(leftEdge, baseY - stroke / 2, rightEdge - leftEdge, stroke, color, stroke)} />,
+  );
+
+  const ry = railY(baseY, minChildTop, cfg);
+
+  out.push(
+    <View key={`c_v_${key}`} style={bar(midX - stroke / 2, baseY, stroke, ry - baseY, color, stroke)} />,
+  );
+
+  const railLeft = Math.min(midX, minChildX);
+  const railW = Math.max(midX, maxChildX) - railLeft;
+  out.push(
+    <View key={`c_r_${key}`} style={bar(railLeft, ry - stroke / 2, railW, stroke, color, stroke)} />,
+  );
+
+  for (const ch of children) {
+    const x = cx(ch);
+    out.push(
+      <View
+        key={`c_ch_${key}_${ch.id}`}
+        style={bar(x - stroke / 2, ry, stroke, top(ch) - ry, color, stroke)}
+      />,
+    );
+  }
+}
+
+function drawSingle(group: SingleGroup, ctx: Ctx): void {
+  const { out, nodeById, stroke, color, cfg } = ctx;
+  const parent = nodeById[group.parentId];
+  if (!parent) return;
+
+  const children = group.childIds
+    .map(id => nodeById[id])
+    .filter(Boolean)
+    .sort((a, b) => cx(a) - cx(b)) as PositionedNode[];
+  if (!children.length) return;
+
+  const px = cx(parent);
+  const pBot = bottom(parent);
+  const childXs = children.map(cx);
+  const minChildTop = Math.min(...children.map(top));
+  const ry = railY(pBot, minChildTop, cfg);
+  const pid = group.parentId;
+
+  out.push(
+    <View key={`s_v_${pid}`} style={bar(px - stroke / 2, pBot, stroke, ry - pBot, color, stroke)} />,
+  );
+
+  const railLeft = Math.min(px, ...childXs);
+  const railW = Math.max(px, ...childXs) - railLeft;
+  out.push(
+    <View key={`s_r_${pid}`} style={bar(railLeft, ry - stroke / 2, railW, stroke, color, stroke)} />,
+  );
+
+  for (const ch of children) {
+    const x = cx(ch);
+    out.push(
+      <View key={`s_ch_${pid}_${ch.id}`} style={bar(x - stroke / 2, ry, stroke, top(ch) - ry, color, stroke)} />,
+    );
+  }
+}
+
+function drawSpouseOnly(
+  pairs: Array<{ aId: string; bId: string }>,
+  drawn: Set<string>,
+  nodeById: Record<string, PositionedNode>,
+  ctx: Ctx,
+): void {
+  const { out, stroke, color, cfg } = ctx;
+
+  pairs.forEach((pair, idx) => {
+    const key = pairKey(pair.aId, pair.bId);
+    if (drawn.has(key)) return;
+
+    const a = nodeById[pair.aId];
+    const b = nodeById[pair.bId];
+    if (!a || !b) return;
+    if (a.generation !== b.generation) return;
+
+    const left = cx(a) <= cx(b) ? a : b;
+    const right = cx(a) <= cx(b) ? b : a;
+    const leftEdge = left.x + left.width;
+    const rightEdge = right.x;
+    const y = Math.max(bottom(left), bottom(right)) + cfg.spouseLineOffset;
+
+    out.push(
+      <View
+        key={`sp_${idx}_${key}`}
+        style={bar(leftEdge, y - stroke / 2, rightEdge - leftEdge, stroke, color, stroke)}
+      />,
+    );
+  });
 }
 
 export function EdgeLines({
   edges,
   nodeById,
   spousePairs = [],
-  strokeWidth = 2,
-  color = '#111827',
+  strokeWidth = EDGE_DRAW_CONFIG.strokeWidth,
+  color = EDGE_DRAW_CONFIG.color,
 }: Props) {
-  const lines: React.ReactNode[] = [];
-  const gap = 24;
-  const attachOffset = 0;
-  const lineDrop = 10;
-  const spouseLineDrop = 8;
+  const content = useMemo(() => {
+    if (!EDGE_DRAW_CONFIG.enabled) return null;
 
-  const parentsByChild: Record<string, string[]> = {};
-  edges.forEach(edge => {
-    const arr = parentsByChild[edge.childId] ?? [];
-    arr.push(edge.parentId);
-    parentsByChild[edge.childId] = arr;
-  });
+    const cfg = EDGE_DRAW_CONFIG;
+    const { groups, drawnCouples } = buildGroups(edges, spousePairs, nodeById);
+    const out: React.ReactNode[] = [];
+    const ctx: Ctx = { out, nodeById, stroke: strokeWidth, color, cfg };
 
-  const spouseKeySet = new Set<string>(
-    spousePairs.map(pair => pairKey(pair.aId, pair.bId)),
-  );
-
-  // child -> resolved parents (strict mode)
-  const parentGroupByChild: Record<
-    string,
-    { kind: 'pair'; aId: string; bId: string } | { kind: 'single'; parentId: string }
-  > = {};
-  const childIdsByGroupKey: Record<string, string[]> = {};
-  const couplesWithChildren = new Set<string>();
-
-  for (const [childId, rawParentIds] of Object.entries(parentsByChild)) {
-    const uniqueParentIds = Array.from(new Set(rawParentIds));
-
-    if (uniqueParentIds.length === 1) {
-      parentGroupByChild[childId] = { kind: 'single', parentId: uniqueParentIds[0] };
-      const gKey = `single__${uniqueParentIds[0]}`;
-      const arr = childIdsByGroupKey[gKey] ?? [];
-      arr.push(childId);
-      childIdsByGroupKey[gKey] = arr;
-      continue;
+    for (const g of groups) {
+      if (g.kind === 'couple') drawCouple(g, ctx);
+      else drawSingle(g, ctx);
     }
 
-    if (uniqueParentIds.length >= 2) {
-      let resolvedCoupleKey: string | null = null;
+    drawSpouseOnly(spousePairs, drawnCouples, nodeById, ctx);
 
-      // 엄격 모드: 부모가 3명 이상 걸린 경우에는 "배우자쌍"만 유효 부모쌍으로 인정한다.
-      for (let i = 0; i < uniqueParentIds.length; i++) {
-        for (let j = i + 1; j < uniqueParentIds.length; j++) {
-          const key = pairKey(uniqueParentIds[i], uniqueParentIds[j]);
-          if (spouseKeySet.has(key)) {
-            resolvedCoupleKey = key;
-            break;
-          }
-        }
-        if (resolvedCoupleKey) break;
-      }
+    return out;
+  }, [edges, nodeById, spousePairs, strokeWidth, color]);
 
-      // 단, 부모가 정확히 2명인 경우에는 배우자 링크가 없어도 해당 2명만 연결 허용.
-      if (!resolvedCoupleKey && uniqueParentIds.length === 2) {
-        resolvedCoupleKey = pairKey(uniqueParentIds[0], uniqueParentIds[1]);
-      }
+  if (!content?.length) return null;
 
-      if (resolvedCoupleKey) {
-        const [aId, bId] = resolvedCoupleKey.split('__');
-        parentGroupByChild[childId] = { kind: 'pair', aId, bId };
-        couplesWithChildren.add(resolvedCoupleKey);
-        const gKey = `pair__${resolvedCoupleKey}`;
-        const arr = childIdsByGroupKey[gKey] ?? [];
-        arr.push(childId);
-        childIdsByGroupKey[gKey] = arr;
-      } else {
-        parentGroupByChild[childId] = { kind: 'single', parentId: uniqueParentIds[0] };
-        const gKey = `single__${uniqueParentIds[0]}`;
-        const arr = childIdsByGroupKey[gKey] ?? [];
-        arr.push(childId);
-        childIdsByGroupKey[gKey] = arr;
-      }
-    }
-  }
-
-  // parent-group rendering:
-  // parent(s) -> trunk -> sibling rail(가로) -> each child vertical.
-  // 이렇게 그리면 부모-자식은 항상 T/ㅠ 형태가 고정된다.
-  Object.entries(childIdsByGroupKey).forEach(([groupKey, rawChildIds]) => {
-    const childNodes = rawChildIds
-      .map(id => nodeById[id])
-      .filter((n): n is PositionedNode => Boolean(n))
-      .sort((a, b) => a.x - b.x);
-    if (!childNodes.length) return;
-
-    const childXs = childNodes.map(n => n.x + n.width / 2);
-    const childTops = childNodes.map(n => n.y - attachOffset);
-    const minChildX = Math.min(...childXs);
-    const maxChildX = Math.max(...childXs);
-    const minChildTop = Math.min(...childTops);
-    const avgChildX = childXs.reduce((sum, x) => sum + x, 0) / childXs.length;
-
-    if (groupKey.startsWith('pair__')) {
-      const pair = groupKey.replace('pair__', '');
-      const [aId, bId] = pair.split('__');
-      const a = nodeById[aId];
-      const b = nodeById[bId];
-      if (!a || !b) return;
-
-      const left = a.x <= b.x ? a : b;
-      const right = a.x <= b.x ? b : a;
-      const leftX = left.x + left.width / 2;
-      const rightX = right.x + right.width / 2;
-      const leftBottom = left.y + left.height + attachOffset;
-      const rightBottom = right.y + right.height + attachOffset;
-      const spouseY = Math.max(leftBottom, rightBottom);
-      const spouseLineY = spouseY + spouseLineDrop;
-      const pairCenterX = (leftX + rightX) / 2;
-      const outwardAnchorGap = 10;
-
-      let anchorX = pairCenterX;
-      if (avgChildX < pairCenterX - 0.5) {
-        anchorX = leftX - outwardAnchorGap;
-      } else if (avgChildX > pairCenterX + 0.5) {
-        anchorX = rightX + outwardAnchorGap;
-      }
-
-      if (leftBottom < spouseY) {
-        lines.push(
-          <View
-            key={`pair_adj_l_${pair}`}
-            style={lineStyle(
-              leftX - strokeWidth / 2,
-              leftBottom,
-              strokeWidth,
-              Math.max(strokeWidth, spouseY - leftBottom),
-              color,
-              strokeWidth,
-            )}
-          />,
-        );
-      }
-      if (rightBottom < spouseY) {
-        lines.push(
-          <View
-            key={`pair_adj_r_${pair}`}
-            style={lineStyle(
-              rightX - strokeWidth / 2,
-              rightBottom,
-              strokeWidth,
-              Math.max(strokeWidth, spouseY - rightBottom),
-              color,
-              strokeWidth,
-            )}
-          />,
-        );
-      }
-
-      // spouse baseline
-      lines.push(
-        <View
-          key={`pair_base_${pair}`}
-          style={lineStyle(
-            leftX,
-            spouseLineY - strokeWidth / 2,
-            Math.max(strokeWidth, rightX - leftX),
-            strokeWidth,
-            color,
-            strokeWidth,
-          )}
-        />,
-      );
-
-      // outward ㄴ/ㄱ branch: first horizontal on spouse baseline
-      if (Math.abs(anchorX - pairCenterX) > 0.5) {
-        lines.push(
-          <View
-            key={`pair_out_h_${pair}`}
-            style={lineStyle(
-              Math.min(pairCenterX, anchorX),
-              spouseLineY - strokeWidth / 2,
-              Math.max(strokeWidth, Math.abs(anchorX - pairCenterX)),
-              strokeWidth,
-              color,
-              strokeWidth,
-            )}
-          />,
-        );
-      }
-
-      let railY = spouseLineY + gap + lineDrop;
-      const maxRailY = minChildTop - gap;
-      if (railY > maxRailY) railY = (spouseLineY + minChildTop) / 2;
-
-      // trunk vertical
-      lines.push(
-        <View
-          key={`pair_trunk_${pair}`}
-          style={lineStyle(
-            anchorX - strokeWidth / 2,
-            spouseLineY,
-            strokeWidth,
-            Math.max(strokeWidth, railY - spouseLineY),
-            color,
-            strokeWidth,
-          )}
-        />,
-      );
-
-      // sibling rail (horizontal)
-      lines.push(
-        <View
-          key={`pair_rail_${pair}`}
-          style={lineStyle(
-            Math.min(anchorX, minChildX),
-            railY - strokeWidth / 2,
-            Math.max(strokeWidth, Math.max(anchorX, maxChildX) - Math.min(anchorX, minChildX)),
-            strokeWidth,
-            color,
-            strokeWidth,
-          )}
-        />,
-      );
-
-      // each child vertical
-      childNodes.forEach(child => {
-        const childX = child.x + child.width / 2;
-        const childTop = child.y - attachOffset;
-        lines.push(
-          <View
-            key={`pair_child_v_${pair}_${child.id}`}
-            style={lineStyle(
-              childX - strokeWidth / 2,
-              railY,
-              strokeWidth,
-              Math.max(strokeWidth, childTop - railY),
-              color,
-              strokeWidth,
-            )}
-          />,
-        );
-      });
-      return;
-    }
-
-    const parentId = groupKey.replace('single__', '');
-    const parent = nodeById[parentId];
-    if (!parent) return;
-
-    const parentX = parent.x + parent.width / 2;
-    const parentBottom = parent.y + parent.height + attachOffset;
-    const outwardGap = 10;
-    let anchorX = parentX;
-    if (avgChildX < parentX - 0.5) anchorX = parentX - outwardGap;
-    else if (avgChildX > parentX + 0.5) anchorX = parentX + outwardGap;
-
-    // outward ㄴ/ㄱ branch for single parent
-    if (Math.abs(anchorX - parentX) > 0.5) {
-      lines.push(
-        <View
-          key={`single_out_h_${parentId}`}
-          style={lineStyle(
-            Math.min(parentX, anchorX),
-            parentBottom - strokeWidth / 2,
-            Math.max(strokeWidth, Math.abs(anchorX - parentX)),
-            strokeWidth,
-            color,
-            strokeWidth,
-          )}
-        />,
-      );
-    }
-
-    let railY = parentBottom + gap + lineDrop;
-    const maxRailY = minChildTop - gap;
-    if (railY > maxRailY) railY = (parentBottom + minChildTop) / 2;
-
-    lines.push(
-      <View
-        key={`single_trunk_${parentId}`}
-        style={lineStyle(
-          anchorX - strokeWidth / 2,
-          parentBottom,
-          strokeWidth,
-          Math.max(strokeWidth, railY - parentBottom),
-          color,
-          strokeWidth,
-        )}
-      />,
-    );
-    lines.push(
-      <View
-        key={`single_rail_${parentId}`}
-        style={lineStyle(
-          Math.min(anchorX, minChildX),
-          railY - strokeWidth / 2,
-          Math.max(strokeWidth, Math.max(anchorX, maxChildX) - Math.min(anchorX, minChildX)),
-          strokeWidth,
-          color,
-          strokeWidth,
-        )}
-      />,
-    );
-    childNodes.forEach(child => {
-      const childX = child.x + child.width / 2;
-      const childTop = child.y - attachOffset;
-      lines.push(
-        <View
-          key={`single_child_v_${parentId}_${child.id}`}
-          style={lineStyle(
-            childX - strokeWidth / 2,
-            railY,
-            strokeWidth,
-            Math.max(strokeWidth, childTop - railY),
-            color,
-            strokeWidth,
-          )}
-        />
-      );
-    });
-  });
-
-  // Always keep spouse baseline visible
-  spousePairs.forEach((pair, idx) => {
-    const key = pairKey(pair.aId, pair.bId);
-    // 자녀 연결에서 이미 부부 가로선을 그린 경우 중복선을 그리지 않는다.
-    if (couplesWithChildren.has(key)) return;
-    const a = nodeById[pair.aId];
-    const b = nodeById[pair.bId];
-    if (!a || !b) return;
-    const left = a.x <= b.x ? a : b;
-    const right = a.x <= b.x ? b : a;
-    const leftX = left.x + left.width / 2;
-    const rightX = right.x + right.width / 2;
-    const y = Math.max(left.y + left.height, right.y + right.height) + 10 + spouseLineDrop;
-    lines.push(
-      <View
-        key={`spouse_${idx}_${pair.aId}_${pair.bId}`}
-        style={lineStyle(
-          leftX,
-          y - strokeWidth / 2,
-          Math.max(strokeWidth, rightX - leftX),
-          strokeWidth,
-          color,
-          strokeWidth,
-        )}
-      />,
-    );
-  });
-
-  return <View pointerEvents="none" style={StyleSheet.absoluteFill}>{lines}</View>;
+  return <View pointerEvents="none" style={StyleSheet.absoluteFill}>{content}</View>;
 }
-

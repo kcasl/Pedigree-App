@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -11,12 +11,26 @@ import Animated, {
 import { AddPersonModal } from '../components/AddPersonModal';
 import { PersonDetailModal } from '../components/PersonDetailModal';
 import { EdgeLines } from '../components/EdgeLines';
-import { PersonNodeCard } from '../components/PersonNodeCard';
+import { DraggablePersonNode } from '../components/DraggablePersonNode';
 import type { ParentType, Person, PersonId } from '../types/pedigree';
 import { API_BASE_URL } from '../config/api';
+import { ENABLE_SERVER_SYNC } from '../config/features';
+import type { ActiveView, PedigreeStore } from '../types/lineage';
+import { ACTIVE_VIEW_BG, ACTIVE_VIEW_LABEL } from '../types/lineage';
+import {
+  clearNodeOffsets,
+  clearPedigreePeople,
+  loadNodeOffsets,
+  loadPedigreeStore,
+  parseStoredPeople,
+  saveNodeOffsets,
+  savePedigreeStore,
+} from '../storage/pedigreeStorage';
 import { nowIso } from '../utils/date';
-import { buildKinshipLabels } from '../utils/kinship';
-import { buildPedigreeLayout } from '../utils/pedigreeLayout';
+import { createDefaultStore, migrateLegacyToStore, slotIdsForView } from '../utils/standardTemplate';
+import { buildStandardPedigreeLayout, STANDARD_LAYOUT_DEFAULTS } from '../utils/standardLayout';
+import type { PositionedNode } from '../utils/pedigreeLayout';
+import { ui } from '../theme/ui';
 import pako from 'pako';
 import { Buffer } from 'buffer';
 
@@ -48,77 +62,25 @@ type PendingPatchPayload = {
   payload_b64: string;
 };
 
-function createSelfPerson(): Person {
-  return {
-    id: 'self',
-    name: '나',
-    createdAt: nowIso(),
-  };
+function createInitialStore(): PedigreeStore {
+  return createDefaultStore(nowIso());
 }
 
-function createInitialPeople(): Record<PersonId, Person> {
-  // 앱 최초 실행 기본 템플릿: 나 + 부모 + 자녀 1명
-  const createdAt = nowIso();
-  const fatherId: PersonId = 'father';
-  const motherId: PersonId = 'mother';
-  const childId: PersonId = 'child1';
-
-  const self: Person = {
-    ...createSelfPerson(),
-    createdAt,
-    gender: 'unknown',
-    fatherId,
-    motherId,
-  };
-
-  const father: Person = {
-    id: fatherId,
-    name: '아버지',
-    createdAt,
-    gender: 'male',
-  };
-  const mother: Person = {
-    id: motherId,
-    name: '어머니',
-    createdAt,
-    gender: 'female',
-  };
-  const child: Person = {
-    id: childId,
-    name: '자녀',
-    createdAt,
-    gender: 'unknown',
-    fatherId: self.id,
-  };
-
-  return {
-    [self.id]: self,
-    [father.id]: father,
-    [mother.id]: mother,
-    [child.id]: child,
-  };
-}
-
-function createSelfOnlyPeople(): Record<PersonId, Person> {
-  const self = createSelfPerson();
-  return { [self.id]: self };
-}
-
-function parseStoredPeople(raw: string | null): Record<PersonId, Person> | null {
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!parsed || typeof parsed !== 'object') return null;
-    const out: Record<PersonId, Person> = {};
-    for (const [id, person] of Object.entries(parsed as Record<string, Person>)) {
-      if (!person || typeof person !== 'object') continue;
-      if (!person.id || !person.name || !person.createdAt) continue;
-      out[id] = person;
-    }
-    return out.self ? out : null;
-  } catch {
-    return null;
+function roleLabel(view: ActiveView, personId: PersonId): string {
+  const s = slotIdsForView(view);
+  if (personId === s.selfId) return '본인';
+  if (personId === s.father) return '부';
+  if (personId === s.mother) return '모';
+  if (personId === s.spouseId) return '배우자';
+  if (personId === s.gf || personId === s.ggm) return '조부모';
+  if (personId === s.ggf || personId === s.ggm) return '증조부모';
+  const sibIdx = s.siblings.findIndex(p => p.blood === personId || p.spouse === personId);
+  if (sibIdx >= 0) {
+    const pair = s.siblings[sibIdx];
+    if (personId === pair.spouse) return '배우자';
+    return sibIdx < 2 ? '형제' : '형제';
   }
+  return '친족';
 }
 
 function inferParentRole(
@@ -147,45 +109,71 @@ export function PedigreeScreen({
   onRequestSwitchAccount,
   onRequestLinkGoogle,
 }: Props) {
-  const [peopleById, setPeopleById] = useState<Record<PersonId, Person>>(createInitialPeople);
+  const [store, setStore] = useState<PedigreeStore>(createInitialStore);
+  const activeView = store.activeView;
+  const peopleById = store.views[activeView];
+  const slots = useMemo(() => slotIdsForView(activeView), [activeView]);
+  const self = peopleById[slots.selfId];
+
+  const updateActiveViewPeople = (
+    updater: (prev: Record<PersonId, Person>) => Record<PersonId, Person>,
+  ) => {
+    setStore(prev => ({
+      ...prev,
+      views: {
+        ...prev.views,
+        [prev.activeView]: updater(prev.views[prev.activeView]),
+      },
+    }));
+  };
+
+  const switchLineageView = (view: ActiveView) => {
+    const nextSlots = slotIdsForView(view);
+    setStore(prev => ({ ...prev, activeView: view }));
+    setNodeXOffsetById({});
+    setSelectedId(nextSlots.selfId);
+    setActionVisible(false);
+  };
+
+  const switchToSelfView = () => switchLineageView('self');
+
+  const [selectedId, setSelectedId] = useState<PersonId>('me_sib2');
+  const selected = peopleById[selectedId];
   const [isHydrated, setIsHydrated] = useState(false);
+  const [localSaveStatus, setLocalSaveStatus] = useState<'idle' | 'saved' | 'error'>('idle');
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
   const remoteSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSyncedPeopleRef = useRef<Record<PersonId, Person>>({});
   const deletedIdsRef = useRef<Set<PersonId>>(new Set());
   const queueRef = useRef<PendingPatchPayload[]>([]);
   const isFlushingRef = useRef(false);
-  const localStorageKey = useMemo(
-    () => (auth?.googleSub ? `pedigree.people.${auth.googleSub}.v1` : 'pedigree.people.guest.v1'),
-    [auth?.googleSub],
-  );
-  const queueStorageKey = useMemo(
+  const legacyQueueStorageKey = useMemo(
     () => (auth?.googleSub ? `pedigree.queue.${auth.googleSub}.v1` : 'pedigree.queue.guest.v1'),
     [auth?.googleSub],
   );
-
-  const self = peopleById.self;
-
-  const [selectedId, setSelectedId] = useState<PersonId>('self');
-  const selected = peopleById[selectedId];
 
   const [actionVisible, setActionVisible] = useState(false);
   const [pendingAdd, setPendingAdd] = useState<PendingAdd | null>(null);
   const [editingId, setEditingId] = useState<PersonId | null>(null);
   const [detailId, setDetailId] = useState<PersonId | null>(null);
+  const [nodeXOffsetById, setNodeXOffsetById] = useState<Record<PersonId, number>>({});
+  const [canvasPanEnabled, setCanvasPanEnabled] = useState(true);
+  const nodeDragCountRef = useRef(0);
   const [settingsVisible, setSettingsVisible] = useState(false);
 
   const selectedDetail = detailId ? peopleById[detailId] : undefined;
 
   const persistQueue = async () => {
+    if (!ENABLE_SERVER_SYNC) return;
     try {
-      await AsyncStorage.setItem(queueStorageKey, JSON.stringify(queueRef.current));
+      await AsyncStorage.setItem(legacyQueueStorageKey, JSON.stringify(queueRef.current));
     } catch {
       // 큐 저장 실패는 치명적이지 않으므로 무시
     }
   };
 
   const flushQueue = async () => {
+    if (!ENABLE_SERVER_SYNC) return;
     if (!auth?.googleSub || !auth.accessToken) return;
     if (isFlushingRef.current) return;
     if (queueRef.current.length === 0) {
@@ -226,31 +214,42 @@ export function PedigreeScreen({
   useEffect(() => {
     let mounted = true;
     const hydrate = async () => {
-      let localPeople: Record<PersonId, Person> | null = null;
       try {
-        const raw = await AsyncStorage.getItem(localStorageKey);
-        localPeople = parseStoredPeople(raw);
-        if (mounted && localPeople) {
-          setPeopleById(localPeople);
-          lastSyncedPeopleRef.current = localPeople;
+        const localStore = await loadPedigreeStore();
+        const savedOffsets = await loadNodeOffsets(localStore?.activeView ?? 'paternal');
+        if (mounted && localStore) {
+          setStore(localStore);
+          lastSyncedPeopleRef.current = localStore.views[localStore.activeView];
+          setSelectedId(slotIdsForView(localStore.activeView).selfId);
+        } else if (mounted) {
+          const initial = createInitialStore();
+          setStore(initial);
+          lastSyncedPeopleRef.current = initial.views.paternal;
         }
+        if (mounted) setNodeXOffsetById(savedOffsets);
 
-        const queueRaw = await AsyncStorage.getItem(queueStorageKey);
-        if (queueRaw) {
-          const parsedQueue = JSON.parse(queueRaw) as PendingPatchPayload[];
-          if (Array.isArray(parsedQueue)) {
-            queueRef.current = parsedQueue.filter(
-              item => item?.compressed === true && typeof item.payload_b64 === 'string',
-            );
+        if (ENABLE_SERVER_SYNC) {
+          const queueRaw = await AsyncStorage.getItem(legacyQueueStorageKey);
+          if (queueRaw) {
+            const parsedQueue = JSON.parse(queueRaw) as PendingPatchPayload[];
+            if (Array.isArray(parsedQueue)) {
+              queueRef.current = parsedQueue.filter(
+                item => item?.compressed === true && typeof item.payload_b64 === 'string',
+              );
+            }
+          } else {
+            queueRef.current = [];
           }
-        } else {
-          queueRef.current = [];
         }
       } catch {
-        // 로컬 저장소 접근 실패 시 기본 템플릿으로 계속 진행
+        if (mounted) {
+          const initial = createInitialStore();
+          setStore(initial);
+          lastSyncedPeopleRef.current = initial.views.paternal;
+        }
       }
 
-      if (auth?.googleSub && auth.accessToken) {
+      if (ENABLE_SERVER_SYNC && auth?.googleSub && auth.accessToken) {
         try {
           setSyncStatus('syncing');
           const res = await fetch(`${API_BASE_URL}/v1/pedigree/${encodeURIComponent(auth.googleSub)}`, {
@@ -263,20 +262,22 @@ export function PedigreeScreen({
             const data = (await res.json()) as { people_by_id?: Record<PersonId, Person> };
             const remotePeopleRaw = data.people_by_id ?? {};
             const remotePeople = parseStoredPeople(JSON.stringify(remotePeopleRaw));
+            const localStore = await loadPedigreeStore();
             if (mounted && remotePeople) {
-              setPeopleById(remotePeople);
-              lastSyncedPeopleRef.current = remotePeople;
-            } else if (mounted && !localPeople) {
-              const initial = createInitialPeople();
-              setPeopleById(initial);
-              lastSyncedPeopleRef.current = initial;
+              const migrated = migrateLegacyToStore(remotePeople);
+              setStore(migrated);
+              lastSyncedPeopleRef.current = migrated.views.paternal;
+              await savePedigreeStore(migrated);
+            } else if (mounted && !localStore) {
+              const initial = createInitialStore();
+              setStore(initial);
+              lastSyncedPeopleRef.current = initial.views.paternal;
             }
             if (mounted) setSyncStatus('synced');
           } else if (mounted) {
             setSyncStatus('error');
           }
         } catch {
-          // 서버 조회 실패 시 로컬/기본 템플릿 사용
           if (mounted) setSyncStatus('offline');
         }
       }
@@ -286,16 +287,48 @@ export function PedigreeScreen({
     return () => {
       mounted = false;
     };
-  }, [auth?.accessToken, auth?.googleSub, localStorageKey, queueStorageKey]);
+  }, [auth?.accessToken, auth?.googleSub, legacyQueueStorageKey]);
 
   useEffect(() => {
     if (!isHydrated) return;
-    AsyncStorage.setItem(localStorageKey, JSON.stringify(peopleById)).catch(() => {
-      // 저장 실패는 UX를 막지 않고 무시
-    });
-  }, [isHydrated, localStorageKey, peopleById]);
+    void loadNodeOffsets(activeView).then(setNodeXOffsetById);
+  }, [activeView, isHydrated]);
 
   useEffect(() => {
+    if (!isHydrated) return;
+    savePedigreeStore(store)
+      .then(() => {
+        setLocalSaveStatus('saved');
+      })
+      .catch(() => {
+        setLocalSaveStatus('error');
+      });
+  }, [isHydrated, store]);
+
+  // 삭제된 인물의 수동 위치 오프셋 제거
+  useEffect(() => {
+    if (!isHydrated) return;
+    setNodeXOffsetById(prev => {
+      const ids = new Set(Object.keys(peopleById));
+      let changed = false;
+      const next: Record<PersonId, number> = {};
+      for (const [id, offset] of Object.entries(prev)) {
+        if (ids.has(id)) next[id as PersonId] = offset;
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [isHydrated, peopleById]);
+
+  useEffect(() => {
+    if (!isHydrated) return;
+    saveNodeOffsets(activeView, nodeXOffsetById).catch(() => {
+      setLocalSaveStatus('error');
+    });
+  }, [isHydrated, activeView, nodeXOffsetById]);
+
+  useEffect(() => {
+    if (!ENABLE_SERVER_SYNC) return;
     if (!isHydrated) return;
     if (!auth?.googleSub || !auth.accessToken) return;
 
@@ -348,6 +381,7 @@ export function PedigreeScreen({
   }, [auth?.accessToken, auth?.googleSub, isHydrated, peopleById]);
 
   useEffect(() => {
+    if (!ENABLE_SERVER_SYNC) return;
     if (!isHydrated) return;
     if (!auth?.googleSub || !auth.accessToken) return;
     if (queueRef.current.length === 0) return;
@@ -355,12 +389,18 @@ export function PedigreeScreen({
   }, [auth?.accessToken, auth?.googleSub, isHydrated]);
 
   const deletePerson = (id: PersonId) => {
-    if (id === 'self') return;
-    setPeopleById(prev => {
+    if (id === slots.selfId) return;
+    updateActiveViewPeople(prev => {
       if (!prev[id]) return prev;
       const next: Record<PersonId, Person> = { ...prev };
       delete next[id];
       deletedIdsRef.current.add(id);
+      setNodeXOffsetById(prev => {
+        if (!prev[id]) return prev;
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
       // detach links from remaining people
       for (const p of Object.values(next)) {
         if (p.fatherId === id) p.fatherId = undefined;
@@ -372,20 +412,22 @@ export function PedigreeScreen({
   };
 
   const layout = useMemo(() => {
-    return buildPedigreeLayout(peopleById, {
-      selfId: 'self',
-      // 위쪽(조상)으로 계속 추가해도 충분히 배치되도록 여유를 크게 잡음
-      maxAncestorDepth: 6,
-      maxDescendantDepth: 8,
-      // 한 줄에 노드가 늘어나면 자동으로 카드/간격을 살짝 줄이는 튜닝 활성화
-      autoTune: true,
-      cardWidth: 176,
-      cardHeight: 138,
-      colGap: 44,
-      rowGap: 230,
-      padding: 40,
+    return buildStandardPedigreeLayout(peopleById, {
+      ...STANDARD_LAYOUT_DEFAULTS,
+      view: activeView,
     });
-  }, [peopleById]);
+  }, [peopleById, activeView]);
+
+  const displayLayout = useMemo(() => {
+    const nodeById: Record<PersonId, PositionedNode> = {};
+    const nodes = layout.nodes.map(n => {
+      const dx = nodeXOffsetById[n.id] ?? 0;
+      const next = { ...n, x: n.x + dx };
+      nodeById[n.id] = next;
+      return next;
+    });
+    return { ...layout, nodes, nodeById };
+  }, [layout, nodeXOffsetById]);
 
   const spousePairs = useMemo(() => {
     const pairs: Array<{ aId: PersonId; bId: PersonId }> = [];
@@ -402,7 +444,13 @@ export function PedigreeScreen({
     return pairs;
   }, [peopleById]);
 
-  const kinshipLabelById = useMemo(() => buildKinshipLabels(peopleById, 'self'), [peopleById]);
+  const kinshipLabelById = useMemo(() => {
+    const labels: Record<PersonId, string> = {};
+    for (const id of Object.keys(peopleById)) {
+      labels[id] = roleLabel(activeView, id);
+    }
+    return labels;
+  }, [peopleById, activeView]);
 
   const MIN_SCALE = 0.25;
   const MAX_SCALE = 2.8;
@@ -415,29 +463,59 @@ export function PedigreeScreen({
   const savedX = useSharedValue(0);
   const savedY = useSharedValue(0);
 
-  const pinch = Gesture.Pinch()
-    .onBegin(() => {
-      savedScale.value = scale.value;
-    })
-    .onUpdate(e => {
-      // worklet(UI thread)에서는 JS 함수 호출을 피하고 직접 계산한다.
-      scale.value = Math.min(MAX_SCALE, Math.max(MIN_SCALE, savedScale.value * e.scale));
-    });
+  const handleNodeDragActive = (active: boolean) => {
+    if (active) {
+      nodeDragCountRef.current += 1;
+      setCanvasPanEnabled(false);
+      return;
+    }
+    nodeDragCountRef.current = Math.max(0, nodeDragCountRef.current - 1);
+    if (nodeDragCountRef.current === 0) setCanvasPanEnabled(true);
+  };
 
-  const pan = Gesture.Pan()
-    .minPointers(1)
-    .minDistance(4)
-    .averageTouches(true)
-    .onBegin(() => {
-      savedX.value = translateX.value;
-      savedY.value = translateY.value;
-    })
-    .onUpdate(e => {
-      translateX.value = savedX.value + e.translationX;
-      translateY.value = savedY.value + e.translationY;
+  const handleNodeOffsetChange = (id: PersonId, offsetX: number) => {
+    setNodeXOffsetById(prev => {
+      if (Math.abs(offsetX) < 0.5) {
+        if (prev[id] == null) return prev;
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      }
+      return { ...prev, [id]: offsetX };
     });
+  };
 
-  const composed = Gesture.Simultaneous(pinch, pan);
+  const pinch = useMemo(
+    () =>
+      Gesture.Pinch()
+        .onBegin(() => {
+          savedScale.value = scale.value;
+        })
+        .onUpdate(e => {
+          scale.value = Math.min(MAX_SCALE, Math.max(MIN_SCALE, savedScale.value * e.scale));
+        }),
+    [savedScale, scale],
+  );
+
+  const pan = useMemo(
+    () =>
+      Gesture.Pan()
+        .enabled(canvasPanEnabled)
+        .minPointers(1)
+        .minDistance(4)
+        .averageTouches(true)
+        .onBegin(() => {
+          savedX.value = translateX.value;
+          savedY.value = translateY.value;
+        })
+        .onUpdate(e => {
+          translateX.value = savedX.value + e.translationX;
+          translateY.value = savedY.value + e.translationY;
+        }),
+    [canvasPanEnabled, savedX, savedY, translateX, translateY],
+  );
+
+  const composed = useMemo(() => Gesture.Simultaneous(pinch, pan), [pinch, pan]);
 
   const canvasStyle = useAnimatedStyle(() => ({
     transform: [
@@ -459,10 +537,10 @@ export function PedigreeScreen({
   };
 
   const openPaternalPlus = () => {
-    // 친가측: 아버지의 형제 추가(=아버지의 sibling)
-    if (!self.fatherId) {
-      Alert.alert('먼저 아버지를 등록하세요', '친가 확장은 아버지(친가 기준)부터 필요합니다.');
-      setSelectedId('self');
+    const father = peopleById[slots.father];
+    if (!father?.fatherId && !father?.motherId) {
+      Alert.alert('먼저 조부모를 등록하세요', '친가 확장은 아버지 부모 정보가 필요합니다.');
+      setSelectedId(slots.father);
       setActionVisible(true);
       return;
     }
@@ -470,10 +548,10 @@ export function PedigreeScreen({
   };
 
   const openMaternalPlus = () => {
-    // 외가측: 어머니의 형제 추가(=어머니의 sibling)
-    if (!self.motherId) {
-      Alert.alert('먼저 어머니를 등록하세요', '외가 확장은 어머니(외가 기준)부터 필요합니다.');
-      setSelectedId('self');
+    const mother = peopleById[slots.mother];
+    if (!mother?.fatherId && !mother?.motherId) {
+      Alert.alert('먼저 조부모를 등록하세요', '외가 확장은 어머니 부모 정보가 필요합니다.');
+      setSelectedId(slots.mother);
       setActionVisible(true);
       return;
     }
@@ -503,33 +581,7 @@ export function PedigreeScreen({
   const onSubmitNewPerson = (person: Person) => {
     const action = pendingAdd;
     if (!action) return;
-    const inferChildSideHint = (childId: PersonId): 'left' | 'right' => {
-      const childNode = layout.nodeById[childId];
-      if (!childNode) return 'left';
-      const selfNode = layout.nodeById.self;
-      const zeroX = selfNode ? selfNode.x + selfNode.width / 2 : layout.canvasWidth / 2;
-      const childCenterX = childNode.x + childNode.width / 2;
-      const eps = 0.5;
-
-      // 최우선 규칙: 부모는 항상 "나(중앙) 기준 바깥쪽"으로만 확장
-      if (childCenterX < zeroX - eps) return 'left';
-      if (childCenterX > zeroX + eps) return 'right';
-
-      // center에 걸친 경우(정중앙/동일축)는 배우자 대비 좌우로 바깥쪽 판정
-      const child = peopleById[childId];
-      const spouseId = child?.spouseId;
-      if (spouseId) {
-        const spouseNode = layout.nodeById[spouseId];
-        if (spouseNode) {
-          const spouseCenterX = spouseNode.x + spouseNode.width / 2;
-          return childCenterX <= spouseCenterX ? 'left' : 'right';
-        }
-      }
-
-      // 완전 중앙 단독 노드는 기본적으로 left로 시작
-      return 'left';
-    };
-    setPeopleById(prev => {
+    updateActiveViewPeople(prev => {
       const next: Record<PersonId, Person> = {
         ...prev,
         [person.id]: person,
@@ -538,12 +590,6 @@ export function PedigreeScreen({
       if (action.kind === 'parent') {
         const child = next[action.childId];
         if (child) {
-          const sideHint =
-            action.childId === 'self'
-              ? action.parentType === 'father'
-                ? 'left'
-                : 'right'
-              : inferChildSideHint(action.childId);
           const normalizedParent: Person = {
             ...next[person.id],
             gender:
@@ -552,7 +598,6 @@ export function PedigreeScreen({
                 : action.parentType === 'father'
                   ? 'male'
                   : 'female',
-            lineageSideHint: sideHint,
           };
           next[person.id] = normalizedParent;
           const otherParentId =
@@ -602,22 +647,24 @@ export function PedigreeScreen({
           next[action.ofId] = { ...base, spouseId: person.id };
           next[person.id] = { ...next[person.id], spouseId: action.ofId };
         }
-      } else if (action.kind === 'paternalPlus' && self.fatherId) {
-        const base = next[self.fatherId];
+      } else if (action.kind === 'paternalPlus') {
+        const base = next[slots.father];
         if (base?.fatherId || base?.motherId) {
           next[person.id] = {
             ...next[person.id],
             fatherId: base.fatherId,
             motherId: base.motherId,
+            lineageSideHint: 'left',
           };
         }
-      } else if (action.kind === 'maternalPlus' && self.motherId) {
-        const base = next[self.motherId];
+      } else if (action.kind === 'maternalPlus') {
+        const base = next[slots.mother];
         if (base?.fatherId || base?.motherId) {
           next[person.id] = {
             ...next[person.id],
             fatherId: base.fatherId,
             motherId: base.motherId,
+            lineageSideHint: 'right',
           };
         }
       }
@@ -625,22 +672,23 @@ export function PedigreeScreen({
       return next;
     });
 
+    setNodeXOffsetById({});
     setPendingAdd(null);
   };
 
   const onSubmitEditPerson = (person: Person) => {
-    setPeopleById(prev => {
+    updateActiveViewPeople(prev => {
       const existing = prev[person.id];
       if (!existing) return prev;
       return {
         ...prev,
         [person.id]: {
           ...existing,
-          // id/createdAt은 유지하고 나머지 필드만 갱신
           name: person.name,
           gender: person.gender,
           phone: person.phone,
           birthDate: person.birthDate,
+          createdAt: person.createdAt,
           photoUri: person.photoUri,
           note: person.note,
         },
@@ -656,18 +704,19 @@ export function PedigreeScreen({
         text: '초기화',
         style: 'destructive',
         onPress: async () => {
-          // 초기화 시 "나"는 남기고 모든 연결/인물을 제거한다.
-          const initial = createSelfOnlyPeople();
-          setPeopleById(initial);
-          setSelectedId('self');
-          lastSyncedPeopleRef.current = initial;
+          // 초기화 시 기본 족보 포맷(나·부모·양가 조부모·배우자·자녀)으로 복원
+          const initial = createInitialStore();
+          setStore(initial);
+          setSelectedId(slotIdsForView('self').selfId);
+          setNodeXOffsetById({});
+          lastSyncedPeopleRef.current = initial.views.paternal;
           deletedIdsRef.current.clear();
           queueRef.current = [];
           setSyncStatus('idle');
-          await AsyncStorage.removeItem(localStorageKey);
-          await AsyncStorage.removeItem(queueStorageKey);
+          await clearPedigreePeople();
+          await clearNodeOffsets();
 
-          if (auth?.googleSub && auth.accessToken) {
+          if (ENABLE_SERVER_SYNC && auth?.googleSub && auth.accessToken) {
             try {
               await fetch(`${API_BASE_URL}/v1/pedigree/${encodeURIComponent(auth.googleSub)}`, {
                 method: 'DELETE',
@@ -714,57 +763,93 @@ export function PedigreeScreen({
     }
   };
 
-  return (
-    <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-      <View style={styles.header}>
-        <View style={styles.headerTopRow}>
-          <Text style={styles.headerTitle}>족보</Text>
-          <Pressable style={styles.settingsBtn} onPress={() => setSettingsVisible(true)}>
-            <Text style={styles.settingsBtnText}>설정</Text>
-          </Pressable>
+  const screenBg = ACTIVE_VIEW_BG[activeView];
+
+  if (!isHydrated) {
+    return (
+      <SafeAreaView style={[styles.safe, { backgroundColor: screenBg }]} edges={['top', 'bottom']}>
+        <View style={styles.loadingWrap}>
+          <ActivityIndicator size="large" color={ui.color.accent} />
+          <Text style={styles.loadingText}>족보 불러오는 중...</Text>
         </View>
-        <Text style={styles.headerSub}>나(중앙) 기준 · 친가(왼쪽) / 외가(오른쪽) 대칭 정렬</Text>
-        {auth?.googleSub ? (
-          <Text style={styles.syncText}>
-            {syncStatus === 'syncing'
-              ? '동기화 중...'
-              : syncStatus === 'synced'
-                ? '서버 동기화 완료'
-                : syncStatus === 'offline'
-                  ? '오프라인 모드 (로컬 저장 중)'
-                  : syncStatus === 'error'
-                    ? '동기화 오류 (재시도 예정)'
-                    : '동기화 대기'}
-          </Text>
-        ) : null}
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <SafeAreaView style={[styles.safe, { backgroundColor: screenBg }]} edges={['top', 'bottom']}>
+      <View style={[styles.header, { backgroundColor: screenBg }]}>
+        <View style={styles.headerTopRow}>
+          <View style={styles.headerTitleWrap}>
+            <Text style={styles.headerTitle}>족보</Text>
+            <Text style={[styles.viewBadge, { backgroundColor: ACTIVE_VIEW_BG[activeView] }]}>
+              {ACTIVE_VIEW_LABEL[activeView]} 시점
+            </Text>
+          </View>
+          <View style={styles.headerActions}>
+            {activeView !== 'self' ? (
+              <Pressable style={styles.selfReturnBtn} onPress={switchToSelfView}>
+                <Text style={styles.selfReturnBtnText}>나 시점</Text>
+              </Pressable>
+            ) : null}
+            <Pressable style={styles.settingsBtn} onPress={() => setSettingsVisible(true)}>
+              <Text style={styles.settingsBtnText}>설정</Text>
+            </Pressable>
+          </View>
+        </View>
+        <Text style={styles.headerSub}>
+          인물 탭으로 추가/수정 · 아버지·어머니·배우자에서 집안 전환
+        </Text>
+        <Text style={styles.syncText}>
+          {localSaveStatus === 'error'
+            ? '기기 저장 실패'
+            : ENABLE_SERVER_SYNC && auth?.googleSub
+              ? syncStatus === 'syncing'
+                ? '동기화 중...'
+                : syncStatus === 'synced'
+                  ? '서버 동기화 완료'
+                  : syncStatus === 'offline'
+                    ? '오프라인 모드 (로컬 저장 중)'
+                    : syncStatus === 'error'
+                      ? '동기화 오류 (재시도 예정)'
+                      : '동기화 대기'
+              : '기기에 저장됨 · 위치 조정 포함'}
+        </Text>
       </View>
 
-      <View style={styles.stage}>
+      <View style={[styles.stage, { backgroundColor: screenBg }]}>
         <GestureDetector gesture={composed}>
           <Animated.View
             style={[
               {
-                width: layout.canvasWidth,
-                height: layout.canvasHeight,
-                backgroundColor: '#f2e3c7',
+                width: displayLayout.canvasWidth,
+                height: displayLayout.canvasHeight,
+                backgroundColor: screenBg,
               },
               canvasStyle,
             ]}
           >
-            {/* 연결선 */}
-            <EdgeLines edges={layout.edges} nodeById={layout.nodeById} spousePairs={spousePairs} />
+            <EdgeLines
+              edges={displayLayout.edges}
+              nodeById={displayLayout.nodeById}
+              spousePairs={spousePairs}
+            />
 
-            {/* 노드 */}
             {layout.nodes.map(n => {
               const p = peopleById[n.id];
               if (!p) return null;
               return (
                 <View key={n.id} style={[styles.node, { left: n.x, top: n.y }]}>
-                  <PersonNodeCard
-                    label={kinshipLabelById[p.id] ?? '친족'}
+                  <DraggablePersonNode
                     person={p}
+                    label={kinshipLabelById[p.id] ?? p.name}
+                    width={n.width}
+                    savedOffsetX={nodeXOffsetById[n.id] ?? 0}
+                    canvasScale={scale}
+                    highlighted={layout.highlightIds.has(n.id)}
                     onPress={() => openActionsFor(n.id)}
-                    style={{ width: n.width, maxWidth: n.width, minWidth: n.width }}
+                    onOffsetChange={offsetX => handleNodeOffsetChange(n.id, offsetX)}
+                    onDragActiveChange={handleNodeDragActive}
                   />
                 </View>
               );
@@ -776,11 +861,11 @@ export function PedigreeScreen({
         <Pressable style={styles.sidePlusLeft} onPress={openPaternalPlus}>
           <Text style={styles.sidePlusText}>+</Text>
         </Pressable>
-        <Text style={styles.sidePlusHintLeft}>친가 인물 추가</Text>
+        <Text style={styles.sidePlusHintLeft}>형제 줄 확장</Text>
         <Pressable style={styles.sidePlusRight} onPress={openMaternalPlus}>
           <Text style={styles.sidePlusText}>+</Text>
         </Pressable>
-        <Text style={styles.sidePlusHintRight}>외가 인물 추가</Text>
+        <Text style={styles.sidePlusHintRight}>가족 인물 추가</Text>
       </View>
 
       {/* 줌 컨트롤 */}
@@ -825,6 +910,62 @@ export function PedigreeScreen({
             >
               <Text style={styles.sheetItemText}>정보 보기</Text>
             </Pressable>
+
+            {activeView === 'self' && selectedId === slots.selfId ? (
+              <>
+                <Pressable
+                  style={[styles.sheetItem, styles.lineageSwitch]}
+                  onPress={() => switchLineageView('paternal')}
+                >
+                  <Text style={styles.lineageSwitchText}>친가보기</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.sheetItem, styles.lineageSwitchMaternal]}
+                  onPress={() => switchLineageView('maternal')}
+                >
+                  <Text style={styles.lineageSwitchText}>외가보기</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.sheetItem, styles.lineageSwitchSpouse]}
+                  onPress={() => switchLineageView('spouse')}
+                >
+                  <Text style={styles.lineageSwitchText}>배우자보기</Text>
+                </Pressable>
+              </>
+            ) : null}
+
+            {activeView === 'self' && selectedId === slots.father ? (
+              <Pressable
+                style={[styles.sheetItem, styles.lineageSwitch]}
+                onPress={() => switchLineageView('paternal')}
+              >
+                <Text style={styles.lineageSwitchText}>친가보기</Text>
+              </Pressable>
+            ) : null}
+
+            {activeView === 'self' && selectedId === slots.mother ? (
+              <Pressable
+                style={[styles.sheetItem, styles.lineageSwitchMaternal]}
+                onPress={() => switchLineageView('maternal')}
+              >
+                <Text style={styles.lineageSwitchText}>외가보기</Text>
+              </Pressable>
+            ) : null}
+
+            {activeView === 'self' && selectedId === slots.spouseId ? (
+              <Pressable
+                style={[styles.sheetItem, styles.lineageSwitchSpouse]}
+                onPress={() => switchLineageView('spouse')}
+              >
+                <Text style={styles.lineageSwitchText}>배우자보기</Text>
+              </Pressable>
+            ) : null}
+
+            {activeView !== 'self' ? (
+              <Pressable style={styles.sheetItem} onPress={switchToSelfView}>
+                <Text style={styles.sheetItemText}>나 시점으로 돌아가기</Text>
+              </Pressable>
+            ) : null}
 
             <Pressable
               style={styles.sheetItem}
@@ -881,7 +1022,7 @@ export function PedigreeScreen({
               <Text style={styles.sheetItemText}>자녀 추가</Text>
             </Pressable>
 
-            {selectedId !== 'self' ? (
+            {selectedId !== slots.selfId ? (
               <Pressable
                 style={[styles.sheetItem, styles.danger]}
                 onPress={() => {
@@ -965,7 +1106,7 @@ export function PedigreeScreen({
               <>
                 <Text style={styles.settingsDesc}>게스트 모드</Text>
                 <Text style={styles.settingsSubDesc}>
-                  구글 연동을 시작하면 이 시점부터 서버 동기화를 시작합니다.
+                  구글 연동 시 계정 정보를 관리합니다. 족보 데이터는 기기에 저장됩니다.
                 </Text>
                 <Pressable style={styles.settingsActionBtn} onPress={askLinkGoogle}>
                   <Text style={styles.settingsActionText}>구글 연동 시작</Text>
@@ -991,56 +1132,96 @@ export function PedigreeScreen({
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: '#ffffff',
+  },
+  loadingWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  loadingText: {
+    color: ui.color.textSecondary,
+    fontSize: 14,
+    fontWeight: ui.weight.label,
   },
   header: {
     paddingHorizontal: 16,
     paddingTop: 12,
     paddingBottom: 10,
     borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
-    backgroundColor: '#ffffff',
+    borderBottomColor: 'rgba(0,0,0,0.06)',
     zIndex: 10,
     elevation: 10,
   },
   headerTitle: {
-    color: '#111827',
+    color: ui.color.text,
     fontSize: 20,
-    fontWeight: '900',
+    fontWeight: ui.weight.heading,
+  },
+  viewBadge: {
+    marginTop: 4,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    fontSize: 11,
+    fontWeight: ui.weight.title,
+    color: ui.color.text,
+    overflow: 'hidden',
   },
   headerTopRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
+  },
+  headerTitleWrap: {
+    flex: 1,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  selfReturnBtn: {
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#2e7d32',
+    backgroundColor: '#f1f8e9',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  selfReturnBtnText: {
+    color: '#1b5e20',
+    fontSize: 12,
+    fontWeight: ui.weight.title,
   },
   headerSub: {
     marginTop: 4,
-    color: '#6b7280',
+    color: ui.color.textSecondary,
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: ui.weight.body,
   },
   settingsBtn: {
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#e5e7eb',
-    backgroundColor: '#ffffff',
+    borderColor: ui.color.border,
+    backgroundColor: ui.color.surface,
     paddingHorizontal: 10,
     paddingVertical: 6,
   },
   settingsBtnText: {
-    color: '#111827',
+    color: ui.color.text,
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: ui.weight.title,
   },
   syncText: {
     marginTop: 6,
-    color: '#6b7280',
+    color: ui.color.textMuted,
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: ui.weight.label,
   },
   stage: {
     flex: 1,
-    backgroundColor: '#f2e3c7',
     overflow: 'hidden',
   },
   node: {
@@ -1053,12 +1234,13 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
+    backgroundColor: ui.color.surface,
+    borderWidth: 1.5,
+    borderColor: ui.color.border,
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 20,
+    ...ui.shadow.float,
   },
   sidePlusRight: {
     position: 'absolute',
@@ -1067,47 +1249,48 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
+    backgroundColor: ui.color.surface,
+    borderWidth: 1.5,
+    borderColor: ui.color.border,
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 20,
+    ...ui.shadow.float,
   },
   sidePlusHintLeft: {
     position: 'absolute',
     left: 8,
     top: 58,
-    color: '#374151',
+    color: ui.color.label,
     fontSize: 11,
-    fontWeight: '700',
-    backgroundColor: 'rgba(255,255,255,0.92)',
+    fontWeight: ui.weight.label,
+    backgroundColor: 'rgba(255,255,255,0.96)',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#e5e7eb',
+    borderColor: ui.color.border,
     zIndex: 20,
   },
   sidePlusHintRight: {
     position: 'absolute',
     right: 8,
     top: 58,
-    color: '#374151',
+    color: ui.color.label,
     fontSize: 11,
-    fontWeight: '700',
-    backgroundColor: 'rgba(255,255,255,0.92)',
+    fontWeight: ui.weight.label,
+    backgroundColor: 'rgba(255,255,255,0.96)',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#e5e7eb',
+    borderColor: ui.color.border,
     zIndex: 20,
   },
   sidePlusText: {
-    color: '#111827',
+    color: ui.color.text,
     fontSize: 22,
-    fontWeight: '900',
+    fontWeight: ui.weight.heading,
     marginTop: -2,
   },
   zoomBox: {
@@ -1120,55 +1303,73 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
+    backgroundColor: ui.color.surface,
+    borderWidth: 1.5,
+    borderColor: ui.color.border,
     alignItems: 'center',
     justifyContent: 'center',
+    ...ui.shadow.float,
   },
   zoomText: {
-    color: '#111827',
+    color: ui.color.text,
     fontSize: 20,
-    fontWeight: '900',
+    fontWeight: ui.weight.heading,
     marginTop: -2,
   },
   sheetBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.35)',
+    backgroundColor: ui.color.overlay,
     justifyContent: 'flex-end',
   },
   sheet: {
-    backgroundColor: '#ffffff',
+    backgroundColor: ui.color.surface,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     borderWidth: 1,
-    borderColor: '#e5e7eb',
+    borderColor: ui.color.borderLight,
     padding: 16,
     gap: 10,
   },
   sheetTitle: {
-    color: '#111827',
-    fontSize: 14,
-    fontWeight: '900',
+    color: ui.color.text,
+    fontSize: 15,
+    fontWeight: ui.weight.heading,
     marginBottom: 6,
   },
   sheetItem: {
     paddingHorizontal: 12,
-    paddingVertical: 12,
-    borderRadius: 14,
-    backgroundColor: '#ffffff',
+    paddingVertical: 13,
+    borderRadius: 12,
+    backgroundColor: ui.color.surface,
     borderWidth: 1,
-    borderColor: '#e5e7eb',
+    borderColor: ui.color.border,
   },
   sheetItemText: {
-    color: '#111827',
-    fontSize: 13,
-    fontWeight: '800',
+    color: ui.color.text,
+    fontSize: 14,
+    fontWeight: ui.weight.title,
+  },
+  lineageSwitch: {
+    backgroundColor: '#e3f2fd',
+    borderColor: '#90caf9',
+  },
+  lineageSwitchMaternal: {
+    backgroundColor: '#fce4ec',
+    borderColor: '#f48fb1',
+  },
+  lineageSwitchSpouse: {
+    backgroundColor: '#f1f8e9',
+    borderColor: '#aed581',
+  },
+  lineageSwitchText: {
+    color: ui.color.text,
+    fontSize: 14,
+    fontWeight: ui.weight.title,
   },
   sheetHint: {
-    color: '#6b7280',
+    color: ui.color.textSecondary,
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: ui.weight.body,
     marginTop: 6,
   },
   sheetRow: {
@@ -1179,73 +1380,76 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   danger: {
-    borderColor: '#fecaca',
-    backgroundColor: '#fff1f2',
+    borderColor: ui.color.dangerBorder,
+    backgroundColor: ui.color.dangerBg,
   },
   dangerText: {
-    color: '#b91c1c',
+    color: ui.color.danger,
+    fontWeight: ui.weight.title,
   },
   settingsSheet: {
     marginHorizontal: 16,
     marginTop: 120,
-    backgroundColor: '#ffffff',
+    backgroundColor: ui.color.surface,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#e5e7eb',
+    borderColor: ui.color.border,
     padding: 16,
     gap: 8,
+    ...ui.shadow.card,
   },
   settingsTitle: {
-    color: '#111827',
-    fontSize: 15,
-    fontWeight: '900',
+    color: ui.color.text,
+    fontSize: 16,
+    fontWeight: ui.weight.heading,
     marginBottom: 6,
   },
   settingsDesc: {
-    color: '#374151',
+    color: ui.color.label,
     fontSize: 13,
-    fontWeight: '600',
+    fontWeight: ui.weight.body,
   },
   settingsSubDesc: {
-    color: '#6b7280',
+    color: ui.color.textSecondary,
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: ui.weight.body,
     marginBottom: 8,
   },
   settingsActionBtn: {
     marginTop: 6,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#e5e7eb',
-    backgroundColor: '#ffffff',
+    borderColor: ui.color.border,
+    backgroundColor: ui.color.surface,
     paddingHorizontal: 10,
-    paddingVertical: 10,
+    paddingVertical: 11,
   },
   settingsActionText: {
-    color: '#111827',
+    color: ui.color.text,
     fontSize: 13,
-    fontWeight: '800',
+    fontWeight: ui.weight.title,
   },
   settingsDangerBtn: {
-    borderColor: '#fecaca',
-    backgroundColor: '#fff1f2',
+    borderColor: ui.color.dangerBorder,
+    backgroundColor: ui.color.dangerBg,
   },
   settingsDangerText: {
-    color: '#b91c1c',
+    color: ui.color.danger,
+    fontWeight: ui.weight.title,
   },
   settingsCloseBtn: {
     marginTop: 10,
     alignSelf: 'flex-end',
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#e5e7eb',
-    backgroundColor: '#ffffff',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    borderColor: ui.color.border,
+    backgroundColor: ui.color.surface,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
   },
   settingsCloseBtnText: {
-    color: '#111827',
+    color: ui.color.text,
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: ui.weight.title,
   },
 });

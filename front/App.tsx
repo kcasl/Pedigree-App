@@ -23,7 +23,9 @@ import {
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { API_BASE_URL } from './src/config/api';
+import { ENABLE_SERVER_SYNC } from './src/config/features';
 import { PedigreeScreen } from './src/screens/PedigreeScreen';
+import { ui } from './src/theme/ui';
 
 const AUTH_STORAGE_KEY = 'auth.google.user.v1';
 const AUTH_MODE_STORAGE_KEY = 'auth.mode.v1';
@@ -91,6 +93,14 @@ export default function App() {
       photo?: string | null;
     },
   ) => {
+    if (!ENABLE_SERVER_SYNC) {
+      return {
+        google_sub: payload.googleSub ?? '',
+        email: payload.email ?? '',
+        name: payload.name ?? null,
+        photo_url: payload.photo ?? null,
+      };
+    }
     const res = await fetch(`${API_BASE_URL}/v1/auth/google`, {
       method: 'POST',
       headers: {
@@ -137,27 +147,8 @@ export default function App() {
     );
   };
 
-  const migrateGuestPedigreeToGoogle = async (googleSub: string) => {
-    const guestPeopleKey = 'pedigree.people.guest.v1';
-    const guestQueueKey = 'pedigree.queue.guest.v1';
-    const userPeopleKey = `pedigree.people.${googleSub}.v1`;
-    const userQueueKey = `pedigree.queue.${googleSub}.v1`;
-    try {
-      const [guestPeople, guestQueue, userPeople, userQueue] = await Promise.all([
-        AsyncStorage.getItem(guestPeopleKey),
-        AsyncStorage.getItem(guestQueueKey),
-        AsyncStorage.getItem(userPeopleKey),
-        AsyncStorage.getItem(userQueueKey),
-      ]);
-      if (!userPeople && guestPeople) {
-        await AsyncStorage.setItem(userPeopleKey, guestPeople);
-      }
-      if (!userQueue && guestQueue) {
-        await AsyncStorage.setItem(userQueueKey, guestQueue);
-      }
-    } catch {
-      // 마이그레이션 실패 시에도 로그인 진행
-    }
+  const migrateGuestPedigreeToGoogle = async (_googleSub: string) => {
+    // 족보는 기기 단일 키(pedigree.people.local.v1)에 저장하므로 계정 전환 시 별도 마이그레이션 불필요
   };
 
   useEffect(() => {
@@ -344,10 +335,10 @@ export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
+        <StatusBar barStyle="dark-content" backgroundColor={ui.color.surface} />
         {isBooting ? (
           <View style={styles.loadingWrap}>
-            <ActivityIndicator size="large" color="#2563eb" />
+            <ActivityIndicator size="large" color={ui.color.accent} />
             <Text style={styles.loadingText}>앱 준비 중...</Text>
           </View>
         ) : isAuthenticated ? (
@@ -404,59 +395,59 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
-    backgroundColor: '#ffffff',
+    backgroundColor: ui.color.surface,
   },
   loadingText: {
-    color: '#6b7280',
+    color: ui.color.textSecondary,
     fontSize: 14,
-    fontWeight: '700',
+    fontWeight: ui.weight.label,
   },
   authWrap: {
     flex: 1,
-    backgroundColor: '#ffffff',
+    backgroundColor: ui.color.surface,
     justifyContent: 'center',
     paddingHorizontal: 24,
     gap: 10,
   },
   authTitle: {
-    color: '#111827',
+    color: ui.color.text,
     fontSize: 28,
-    fontWeight: '900',
+    fontWeight: ui.weight.heading,
     textAlign: 'center',
     marginBottom: 4,
   },
   authSub: {
-    color: '#6b7280',
+    color: ui.color.textSecondary,
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: ui.weight.body,
     textAlign: 'center',
     marginBottom: 18,
   },
   googleBtn: {
     height: 48,
-    borderRadius: 14,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#2563eb',
+    backgroundColor: ui.color.accent,
   },
   googleBtnText: {
-    color: '#ffffff',
+    color: ui.color.surface,
     fontSize: 15,
-    fontWeight: '900',
+    fontWeight: ui.weight.heading,
   },
   guestBtn: {
     height: 46,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#d1d5db',
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: ui.color.border,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#ffffff',
+    backgroundColor: ui.color.surface,
   },
   guestBtnText: {
-    color: '#111827',
+    color: ui.color.text,
     fontSize: 14,
-    fontWeight: '800',
+    fontWeight: ui.weight.title,
   },
   pressed: {
     opacity: 0.9,

@@ -16,10 +16,17 @@ import {
   type ImageLibraryOptions,
 } from 'react-native-image-picker';
 import type { GenderType, Person } from '../types/pedigree';
-import { nowIso } from '../utils/date';
+import {
+  isoToDateInput,
+  nowIso,
+  nowIsoFromNetwork,
+  parseDateInputToIso,
+} from '../utils/date';
 import { createId } from '../utils/id';
 import { ensureCameraPermission, ensurePhotoPermission } from '../utils/permissions';
 import { API_BASE_URL } from '../config/api';
+import { ENABLE_SERVER_SYNC } from '../config/features';
+import { ui } from '../theme/ui';
 
 type Props = {
   visible: boolean;
@@ -29,7 +36,7 @@ type Props = {
   auth?: { googleSub: string; accessToken?: string };
   /**
    * 수정 모드일 때 기존 값을 주입합니다.
-   * - id/createdAt는 유지
+   * - id는 유지, createdAt(등록일)은 폼에서 수정 가능
    */
   initialPerson?: Person;
 };
@@ -63,16 +70,54 @@ export function AddPersonModal({
   );
   const [note, setNote] = useState(initialPerson?.note ?? '');
   const [gender, setGender] = useState<GenderType>(initialPerson?.gender ?? 'unknown');
+  const [registeredDate, setRegisteredDate] = useState('');
+  const [networkCreatedAt, setNetworkCreatedAt] = useState<string | undefined>();
+
+  const resolveCreatedAt = (): string | null => {
+    const trimmed = registeredDate.trim();
+    if (!trimmed) {
+      return networkCreatedAt ?? initialPerson?.createdAt ?? nowIso();
+    }
+    const parsed = parseDateInputToIso(trimmed);
+    if (!parsed) return null;
+    if (
+      !initialPerson &&
+      networkCreatedAt &&
+      isoToDateInput(networkCreatedAt) === trimmed
+    ) {
+      return networkCreatedAt;
+    }
+    return parsed;
+  };
 
   // 모달을 "추가/수정"으로 번갈아 쓸 때 초기값이 바뀌면 폼도 동기화
   useEffect(() => {
     if (!visible) return;
+
     setName(initialPerson?.name ?? '');
     setPhone(initialPerson?.phone ?? '');
     setBirthDate(initialPerson?.birthDate ?? '');
     setPhotoUri(initialPerson?.photoUri);
     setNote(initialPerson?.note ?? '');
     setGender(initialPerson?.gender ?? 'unknown');
+
+    if (initialPerson) {
+      setRegisteredDate(isoToDateInput(initialPerson.createdAt));
+      setNetworkCreatedAt(undefined);
+      return;
+    }
+
+    setRegisteredDate('');
+    setNetworkCreatedAt(undefined);
+    let cancelled = false;
+    void nowIsoFromNetwork().then(iso => {
+      if (cancelled) return;
+      setNetworkCreatedAt(iso);
+      setRegisteredDate(isoToDateInput(iso));
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [visible, initialPerson?.id]);
 
   const canSave = useMemo(() => name.trim().length > 0, [name]);
@@ -84,6 +129,10 @@ export function AddPersonModal({
     setPhotoUri(initialPerson?.photoUri);
     setNote(initialPerson?.note ?? '');
     setGender(initialPerson?.gender ?? 'unknown');
+    setRegisteredDate(
+      initialPerson ? isoToDateInput(initialPerson.createdAt) : '',
+    );
+    setNetworkCreatedAt(undefined);
   };
 
   const pickFromGallery = async () => {
@@ -97,7 +146,7 @@ export function AddPersonModal({
     }
     const uri = res.assets?.[0]?.uri;
     if (uri) {
-      if (auth?.googleSub && auth.accessToken) {
+      if (ENABLE_SERVER_SYNC && auth?.googleSub && auth.accessToken) {
         const uploaded = await uploadPhotoToServer(uri, auth.googleSub, auth.accessToken);
         setPhotoUri(uploaded ?? uri);
       } else {
@@ -117,7 +166,7 @@ export function AddPersonModal({
     }
     const uri = res.assets?.[0]?.uri;
     if (uri) {
-      if (auth?.googleSub && auth.accessToken) {
+      if (ENABLE_SERVER_SYNC && auth?.googleSub && auth.accessToken) {
         const uploaded = await uploadPhotoToServer(uri, auth.googleSub, auth.accessToken);
         setPhotoUri(uploaded ?? uri);
       } else {
@@ -161,12 +210,19 @@ export function AddPersonModal({
       return;
     }
 
+    const createdAt = resolveCreatedAt();
+    if (!createdAt) {
+      Alert.alert('입력 오류', '등록일은 YYYY-MM-DD 형식으로 입력해 주세요.');
+      return;
+    }
+
     const person: Person = initialPerson
       ? {
           ...initialPerson,
           name: name.trim(),
           phone: phone.trim() || undefined,
           birthDate: birthDate.trim() || undefined,
+          createdAt,
           photoUri,
           note: note.trim() || undefined,
           gender,
@@ -176,7 +232,7 @@ export function AddPersonModal({
           name: name.trim(),
           phone: phone.trim() || undefined,
           birthDate: birthDate.trim() || undefined,
-          createdAt: nowIso(),
+          createdAt,
           photoUri,
           note: note.trim() || undefined,
           gender,
@@ -300,6 +356,24 @@ export function AddPersonModal({
             </View>
 
             <View style={styles.field}>
+              <Text style={styles.label}>등록일</Text>
+              <TextInput
+                value={registeredDate}
+                onChangeText={setRegisteredDate}
+                placeholder="YYYY-MM-DD"
+                placeholderTextColor="#64748b"
+                style={styles.input}
+              />
+              {!initialPerson ? (
+                <Text style={styles.fieldHint}>
+                  와이파이 연결 시 네트워크 시간으로 자동 입력됩니다.
+                </Text>
+              ) : (
+                <Text style={styles.fieldHint}>등록일을 직접 수정할 수 있습니다.</Text>
+              )}
+            </View>
+
+            <View style={styles.field}>
               <View style={styles.noteHeader}>
                 <Text style={styles.label}>비고(기타 정보)</Text>
                 <Text style={styles.noteCount}>{note.length}/100</Text>
@@ -358,15 +432,15 @@ export function AddPersonModal({
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    backgroundColor: ui.color.overlay,
     justifyContent: 'flex-end',
   },
   sheet: {
-    backgroundColor: '#ffffff',
+    backgroundColor: ui.color.surface,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     borderWidth: 1,
-    borderColor: '#e5e7eb',
+    borderColor: ui.color.borderLight,
     overflow: 'hidden',
     maxHeight: '88%',
   },
@@ -374,28 +448,28 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: '#f3f4f6',
+    borderBottomColor: ui.color.borderLight,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
   title: {
-    color: '#111827',
+    color: ui.color.text,
     fontSize: 16,
-    fontWeight: '800',
+    fontWeight: ui.weight.heading,
   },
   closeBtn: {
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 10,
-    backgroundColor: '#f3f4f6',
+    backgroundColor: ui.color.surfaceMuted,
     borderWidth: 1,
-    borderColor: '#e5e7eb',
+    borderColor: ui.color.border,
   },
   closeText: {
-    color: '#111827',
+    color: ui.color.text,
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: ui.weight.title,
   },
   body: {
     padding: 16,
@@ -405,18 +479,25 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   label: {
-    color: '#374151',
+    color: ui.color.label,
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: ui.weight.label,
+  },
+  fieldHint: {
+    color: ui.color.textMuted,
+    fontSize: 11,
+    fontWeight: ui.weight.body,
   },
   input: {
-    color: '#111827',
-    backgroundColor: '#ffffff',
+    color: ui.color.text,
+    backgroundColor: ui.color.surface,
     borderWidth: 1,
-    borderColor: '#e5e7eb',
+    borderColor: ui.color.border,
     borderRadius: 12,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 11,
+    fontSize: 14,
+    fontWeight: ui.weight.body,
   },
   noteHeader: {
     flexDirection: 'row',
@@ -424,9 +505,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   noteCount: {
-    color: '#6b7280',
+    color: ui.color.textMuted,
     fontSize: 11,
-    fontWeight: '800',
+    fontWeight: ui.weight.title,
   },
   noteInput: {
     minHeight: 72,
@@ -442,21 +523,22 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#e5e7eb',
-    backgroundColor: '#ffffff',
-    paddingVertical: 10,
+    borderColor: ui.color.border,
+    backgroundColor: ui.color.surface,
+    paddingVertical: 11,
   },
   genderBtnActive: {
-    borderColor: '#2563eb',
-    backgroundColor: '#eff6ff',
+    borderColor: ui.color.accent,
+    backgroundColor: ui.color.accentBg,
   },
   genderBtnText: {
-    color: '#374151',
-    fontSize: 12,
-    fontWeight: '800',
+    color: ui.color.label,
+    fontSize: 13,
+    fontWeight: ui.weight.title,
   },
   genderBtnTextActive: {
-    color: '#1d4ed8',
+    color: ui.color.accentDark,
+    fontWeight: ui.weight.heading,
   },
   photoRow: {
     flexDirection: 'row',
@@ -467,41 +549,43 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     borderRadius: 12,
-    backgroundColor: '#ffffff',
+    backgroundColor: ui.color.surface,
     borderWidth: 1,
-    borderColor: '#e5e7eb',
+    borderColor: ui.color.border,
   },
   photoBtnText: {
-    color: '#111827',
+    color: ui.color.text,
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: ui.weight.title,
   },
   photoBtnDanger: {
-    borderColor: '#fecaca',
-    backgroundColor: '#fff1f2',
+    borderColor: ui.color.dangerBorder,
+    backgroundColor: ui.color.dangerBg,
   },
   photoBtnDangerText: {
-    color: '#b91c1c',
+    color: ui.color.danger,
+    fontWeight: ui.weight.title,
   },
   photoInfo: {
     flex: 1,
     paddingHorizontal: 10,
   },
   photoInfoText: {
-    color: '#6b7280',
+    color: ui.color.textSecondary,
     fontSize: 12,
+    fontWeight: ui.weight.body,
   },
   footer: {
     padding: 16,
     borderTopWidth: 1,
-    borderTopColor: '#f3f4f6',
+    borderTopColor: ui.color.borderLight,
   },
   saveBtn: {
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 14,
-    backgroundColor: '#2563eb',
-    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: ui.color.accent,
+    paddingVertical: 13,
   },
   saveBtnPressed: {
     opacity: 0.9,
@@ -511,9 +595,9 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   saveText: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: '900',
+    color: ui.color.surface,
+    fontSize: 15,
+    fontWeight: ui.weight.heading,
   },
 });
 

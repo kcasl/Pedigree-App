@@ -9,6 +9,7 @@ import {
   View,
 } from 'react-native';
 import type { Person } from '../types/pedigree';
+import { ui } from '../theme/ui';
 import { formatKoreanDate } from '../utils/date';
 
 type Props = {
@@ -49,12 +50,15 @@ export function PersonDetailModal({ visible, person, onClose, onEdit, onDelete }
               )}
               <View style={styles.topText}>
                 <Text style={styles.name}>{person?.name ?? ''}</Text>
-                <Text style={styles.sub}>
-                  등록일자: {formatKoreanDate(person?.createdAt)}
-                </Text>
               </View>
             </View>
 
+            <View style={styles.section}>
+              <Text style={styles.label}>등록일</Text>
+              <Text style={styles.value}>
+                {formatKoreanDate(person?.createdAt) || '-'}
+              </Text>
+            </View>
             <View style={styles.section}>
               <Text style={styles.label}>연락처</Text>
               <Text style={styles.value}>{person?.phone ?? '-'}</Text>
@@ -98,44 +102,45 @@ export function PersonDetailModal({ visible, person, onClose, onEdit, onDelete }
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.35)',
+    backgroundColor: ui.color.overlay,
     justifyContent: 'center',
     padding: 18,
   },
   card: {
-    backgroundColor: '#ffffff',
-    borderRadius: 18,
+    backgroundColor: ui.color.surface,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#e5e7eb',
+    borderColor: ui.color.border,
     overflow: 'hidden',
     maxHeight: '86%',
+    ...ui.shadow.card,
   },
   header: {
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#f3f4f6',
+    borderBottomColor: ui.color.borderLight,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
   title: {
-    color: '#111827',
-    fontSize: 15,
-    fontWeight: '900',
+    color: ui.color.text,
+    fontSize: 16,
+    fontWeight: ui.weight.heading,
   },
   closeBtn: {
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 10,
-    backgroundColor: '#f3f4f6',
+    backgroundColor: ui.color.surfaceMuted,
     borderWidth: 1,
-    borderColor: '#e5e7eb',
+    borderColor: ui.color.border,
   },
   closeText: {
-    color: '#111827',
+    color: ui.color.text,
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: ui.weight.title,
   },
   body: {
     padding: 16,
@@ -151,54 +156,51 @@ const styles = StyleSheet.create({
     width: 62,
     height: 62,
     borderRadius: 31,
-    backgroundColor: '#f3f4f6',
+    backgroundColor: ui.color.badgeBg,
+    borderWidth: 1,
+    borderColor: ui.color.borderLight,
   },
   avatarFallback: {
     width: 62,
     height: 62,
     borderRadius: 31,
-    backgroundColor: '#f3f4f6',
+    backgroundColor: ui.color.badgeBg,
     borderWidth: 1,
-    borderColor: '#e5e7eb',
+    borderColor: ui.color.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
   avatarFallbackText: {
-    color: '#111827',
+    color: ui.color.text,
     fontSize: 22,
-    fontWeight: '900',
+    fontWeight: ui.weight.heading,
   },
   topText: {
     flex: 1,
     gap: 4,
   },
   name: {
-    color: '#111827',
+    color: ui.color.text,
     fontSize: 18,
-    fontWeight: '900',
-  },
-  sub: {
-    color: '#6b7280',
-    fontSize: 12,
-    fontWeight: '700',
+    fontWeight: ui.weight.heading,
   },
   section: {
     gap: 4,
   },
   label: {
-    color: '#374151',
+    color: ui.color.label,
     fontSize: 12,
-    fontWeight: '900',
+    fontWeight: ui.weight.title,
   },
   value: {
-    color: '#111827',
+    color: ui.color.text,
     fontSize: 14,
-    fontWeight: '700',
+    fontWeight: ui.weight.label,
   },
   footer: {
     padding: 16,
     borderTopWidth: 1,
-    borderTopColor: '#f3f4f6',
+    borderTopColor: ui.color.borderLight,
     flexDirection: 'row',
     gap: 10,
   },
@@ -206,28 +208,29 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 14,
-    backgroundColor: '#2563eb',
-    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: ui.color.accent,
+    paddingVertical: 13,
   },
   primaryText: {
-    color: '#ffffff',
-    fontSize: 13,
-    fontWeight: '900',
+    color: ui.color.surface,
+    fontSize: 14,
+    fontWeight: ui.weight.heading,
   },
   dangerBtn: {
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 14,
-    backgroundColor: '#fff1f2',
+    borderRadius: 12,
+    backgroundColor: ui.color.dangerBg,
     borderWidth: 1,
-    borderColor: '#fecaca',
+    borderColor: ui.color.dangerBorder,
     paddingHorizontal: 14,
+    paddingVertical: 13,
   },
   dangerText: {
-    color: '#b91c1c',
+    color: ui.color.danger,
     fontSize: 13,
-    fontWeight: '900',
+    fontWeight: ui.weight.heading,
   },
 });
 
