@@ -19,8 +19,37 @@ type Props = {
   generation?: number;
 };
 
+type FallbackAvatarTheme = {
+  bg: string;
+  fg: string;
+  border: string;
+};
+
+function fallbackAvatarTheme(gender?: Person['gender']): FallbackAvatarTheme {
+  if (gender === 'male') {
+    return {
+      bg: '#EDF5FF',
+      fg: '#7FA8D8',
+      border: '#D3E4FA',
+    };
+  }
+  if (gender === 'female') {
+    return {
+      bg: '#F6EEFF',
+      fg: '#A47CCF',
+      border: '#E2D2F6',
+    };
+  }
+  return {
+    bg: '#EFF4FA',
+    fg: '#8B9AAF',
+    border: '#D7E1ED',
+  };
+}
+
 export function PersonNodeCard({ label, person, onPress, style, highlighted, generation = 0 }: Props) {
   const rowBg = ui.generationSurface(generation);
+  const avatarTheme = fallbackAvatarTheme(person?.gender);
 
   return (
     <Pressable
@@ -41,11 +70,19 @@ export function PersonNodeCard({ label, person, onPress, style, highlighted, gen
       <View style={styles.content}>
         {person?.photoUri ? (
           <Image source={{ uri: person.photoUri }} style={styles.avatar} />
+        ) : person ? (
+          <View
+            style={[
+              styles.avatarFallback,
+              { backgroundColor: avatarTheme.bg, borderColor: avatarTheme.border },
+            ]}
+          >
+            <View style={[styles.personHead, { backgroundColor: avatarTheme.fg }]} />
+            <View style={[styles.personBody, { backgroundColor: avatarTheme.fg }]} />
+          </View>
         ) : (
           <View style={styles.avatarFallback}>
-            <Text style={styles.avatarFallbackText}>
-              {person?.name?.slice(0, 1) ?? '+'}
-            </Text>
+            <Text style={styles.avatarFallbackText}>+</Text>
           </View>
         )}
 
@@ -126,6 +163,20 @@ const styles = StyleSheet.create({
     borderColor: ui.color.border,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  personHead: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    marginBottom: 5,
+  },
+  personBody: {
+    width: 34,
+    height: 30,
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    borderBottomLeftRadius: 10,
+    borderBottomRightRadius: 10,
   },
   avatarFallbackText: {
     color: ui.color.text,

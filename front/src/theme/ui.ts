@@ -1,5 +1,6 @@
 /** 앱 전역 UI 토큰 — 색·굵기·그림자 */
 export const ui = {
+  generationPalette: ['#EEF4FF', '#F2EEFF', '#FDEFFA', '#ECF8F2'] as const,
   color: {
     text: '#0f172a',
     textSecondary: '#475569',
@@ -20,16 +21,14 @@ export const ui = {
     overlay: 'rgba(15,23,42,0.38)',
     line: '#334155',
   },
+  generationLine(gen: number): string {
+    const palette = this.generationPalette;
+    const idx = ((gen % palette.length) + palette.length) % palette.length;
+    return palette[idx];
+  },
   /** 세대(가로줄)별 카드 배경 — 위로 갈수록 밝음 */
   generationSurface(gen: number): string {
-    const shades: Record<number, string> = {
-      [-2]: '#fafbfc',
-      [-1]: '#f3f5f7',
-      [0]: '#eceff3',
-      [1]: '#e5e9ee',
-      [2]: '#dee3ea',
-    };
-    return shades[gen] ?? this.color.surface;
+    return this.generationLine(gen);
   },
   weight: {
     body: '600' as const,

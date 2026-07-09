@@ -180,12 +180,12 @@ type Ctx = {
   out: React.ReactNode[];
   nodeById: Record<string, PositionedNode>;
   stroke: number;
-  color: string;
+  fallbackColor?: string;
   cfg: typeof EDGE_DRAW_CONFIG;
 };
 
 function drawCouple(group: CoupleGroup, ctx: Ctx): void {
-  const { out, nodeById, stroke, color, cfg } = ctx;
+  const { out, nodeById, stroke, fallbackColor, cfg } = ctx;
   const left = nodeById[group.leftId];
   const right = nodeById[group.rightId];
   if (!left || !right) return;
@@ -205,23 +205,29 @@ function drawCouple(group: CoupleGroup, ctx: Ctx): void {
   const minChildX = Math.min(...childXs);
   const maxChildX = Math.max(...childXs);
   const minChildTop = Math.min(...children.map(top));
+  const childGeneration = children[0]?.generation ?? left.generation + 1;
+  const parentColor = fallbackColor ?? ui.generationLine(left.generation);
+  const childColor = fallbackColor ?? ui.generationLine(childGeneration);
 
   const key = pairKey(group.leftId, group.rightId);
 
   out.push(
-    <View key={`c_h_${key}`} style={bar(leftEdge, baseY - stroke / 2, rightEdge - leftEdge, stroke, color, stroke)} />,
+    <View
+      key={`c_h_${key}`}
+      style={bar(leftEdge, baseY - stroke / 2, rightEdge - leftEdge, stroke, parentColor, stroke)}
+    />,
   );
 
   const ry = railY(baseY, minChildTop, cfg);
 
   out.push(
-    <View key={`c_v_${key}`} style={bar(midX - stroke / 2, baseY, stroke, ry - baseY, color, stroke)} />,
+    <View key={`c_v_${key}`} style={bar(midX - stroke / 2, baseY, stroke, ry - baseY, parentColor, stroke)} />,
   );
 
   const railLeft = Math.min(midX, minChildX);
   const railW = Math.max(midX, maxChildX) - railLeft;
   out.push(
-    <View key={`c_r_${key}`} style={bar(railLeft, ry - stroke / 2, railW, stroke, color, stroke)} />,
+    <View key={`c_r_${key}`} style={bar(railLeft, ry - stroke / 2, railW, stroke, childColor, stroke)} />,
   );
 
   for (const ch of children) {
@@ -229,14 +235,14 @@ function drawCouple(group: CoupleGroup, ctx: Ctx): void {
     out.push(
       <View
         key={`c_ch_${key}_${ch.id}`}
-        style={bar(x - stroke / 2, ry, stroke, top(ch) - ry, color, stroke)}
+        style={bar(x - stroke / 2, ry, stroke, top(ch) - ry, childColor, stroke)}
       />,
     );
   }
 }
 
 function drawSingle(group: SingleGroup, ctx: Ctx): void {
-  const { out, nodeById, stroke, color, cfg } = ctx;
+  const { out, nodeById, stroke, fallbackColor, cfg } = ctx;
   const parent = nodeById[group.parentId];
   if (!parent) return;
 
@@ -252,21 +258,27 @@ function drawSingle(group: SingleGroup, ctx: Ctx): void {
   const minChildTop = Math.min(...children.map(top));
   const ry = railY(pBot, minChildTop, cfg);
   const pid = group.parentId;
+  const childGeneration = children[0]?.generation ?? parent.generation + 1;
+  const parentColor = fallbackColor ?? ui.generationLine(parent.generation);
+  const childColor = fallbackColor ?? ui.generationLine(childGeneration);
 
   out.push(
-    <View key={`s_v_${pid}`} style={bar(px - stroke / 2, pBot, stroke, ry - pBot, color, stroke)} />,
+    <View key={`s_v_${pid}`} style={bar(px - stroke / 2, pBot, stroke, ry - pBot, parentColor, stroke)} />,
   );
 
   const railLeft = Math.min(px, ...childXs);
   const railW = Math.max(px, ...childXs) - railLeft;
   out.push(
-    <View key={`s_r_${pid}`} style={bar(railLeft, ry - stroke / 2, railW, stroke, color, stroke)} />,
+    <View key={`s_r_${pid}`} style={bar(railLeft, ry - stroke / 2, railW, stroke, childColor, stroke)} />,
   );
 
   for (const ch of children) {
     const x = cx(ch);
     out.push(
-      <View key={`s_ch_${pid}_${ch.id}`} style={bar(x - stroke / 2, ry, stroke, top(ch) - ry, color, stroke)} />,
+      <View
+        key={`s_ch_${pid}_${ch.id}`}
+        style={bar(x - stroke / 2, ry, stroke, top(ch) - ry, childColor, stroke)}
+      />,
     );
   }
 }
@@ -277,7 +289,7 @@ function drawSpouseOnly(
   nodeById: Record<string, PositionedNode>,
   ctx: Ctx,
 ): void {
-  const { out, stroke, color, cfg } = ctx;
+  const { out, stroke, fallbackColor, cfg } = ctx;
 
   pairs.forEach((pair, idx) => {
     const key = pairKey(pair.aId, pair.bId);
@@ -293,11 +305,12 @@ function drawSpouseOnly(
     const leftEdge = left.x + left.width;
     const rightEdge = right.x;
     const y = Math.max(bottom(left), bottom(right)) + cfg.spouseLineOffset;
+    const spouseColor = fallbackColor ?? ui.generationLine(left.generation);
 
     out.push(
       <View
         key={`sp_${idx}_${key}`}
-        style={bar(leftEdge, y - stroke / 2, rightEdge - leftEdge, stroke, color, stroke)}
+        style={bar(leftEdge, y - stroke / 2, rightEdge - leftEdge, stroke, spouseColor, stroke)}
       />,
     );
   });
@@ -308,7 +321,7 @@ export function EdgeLines({
   nodeById,
   spousePairs = [],
   strokeWidth = EDGE_DRAW_CONFIG.strokeWidth,
-  color = EDGE_DRAW_CONFIG.color,
+  color = '#000000',
 }: Props) {
   const content = useMemo(() => {
     if (!EDGE_DRAW_CONFIG.enabled) return null;
@@ -316,7 +329,7 @@ export function EdgeLines({
     const cfg = EDGE_DRAW_CONFIG;
     const { groups, drawnCouples } = buildGroups(edges, spousePairs, nodeById);
     const out: React.ReactNode[] = [];
-    const ctx: Ctx = { out, nodeById, stroke: strokeWidth, color, cfg };
+    const ctx: Ctx = { out, nodeById, stroke: strokeWidth, fallbackColor: color, cfg };
 
     for (const g of groups) {
       if (g.kind === 'couple') drawCouple(g, ctx);
