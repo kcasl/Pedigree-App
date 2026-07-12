@@ -119,18 +119,18 @@ const PATERNAL_NAMES: DefaultNames = {
   father: '친할아버지',
   mother: '친할머니',
   siblings: [
-    { blood: '형', spouse: '형수', bloodGender: 'male', spouseGender: 'female' },
+    { blood: '', spouse: '', bloodGender: 'unknown', spouseGender: 'unknown' },
     { blood: '큰아버지', spouse: '큰어머니', bloodGender: 'male', spouseGender: 'female' },
     { blood: '아버지', spouse: '어머니', bloodGender: 'male', spouseGender: 'female' },
     { blood: '고모', spouse: '고모부', bloodGender: 'female', spouseGender: 'male' },
-    { blood: '남동생', spouse: '제수', bloodGender: 'male', spouseGender: 'female' },
+    { blood: '', spouse: '', bloodGender: 'unknown', spouseGender: 'unknown' },
   ],
   children: [
-    ['형의 아들', '형의 딸'],
+    ['', ''],
     ['큰아버지의 아들', '큰아버지의 딸'],
     ['나의 아들', '나의 딸'],
     ['고모의 아들', '고모의 딸'],
-    ['남동생의 아들', '남동생의 딸'],
+    ['', ''],
   ],
 };
 
@@ -144,18 +144,18 @@ const MATERNAL_NAMES: DefaultNames = {
   father: '외할아버지',
   mother: '외할머니',
   siblings: [
-    { blood: '외가 삼촌', spouse: '삼숙', bloodGender: 'male', spouseGender: 'female' },
+    { blood: '', spouse: '', bloodGender: 'unknown', spouseGender: 'unknown' },
     { blood: '삼촌', spouse: '숙모', bloodGender: 'male', spouseGender: 'female' },
     { blood: '어머니', spouse: '아버지', bloodGender: 'female', spouseGender: 'male' },
     { blood: '이모', spouse: '이모부', bloodGender: 'female', spouseGender: 'male' },
-    { blood: '외가 남동생', spouse: '제수', bloodGender: 'male', spouseGender: 'female' },
+    { blood: '', spouse: '', bloodGender: 'unknown', spouseGender: 'unknown' },
   ],
   children: [
-    ['삼촌의 아들', '삼촌의 딸'],
+    ['', ''],
     ['삼촌의 아들', '삼촌의 딸'],
     ['나의 아들', '나의 딸'],
     ['이모의 아들', '이모의 딸'],
-    ['남동생의 아들', '남동생의 딸'],
+    ['', ''],
   ],
 };
 
@@ -237,7 +237,9 @@ export function createViewTemplate(
   });
 
   slots.siblings.forEach((pair, i) => {
+    if ((view === 'paternal' || view === 'maternal') && (i === 0 || i === 4)) return;
     const sn = names.siblings[i];
+    if (!sn?.blood) return;
     out[pair.blood] = person(pair.blood, sn.blood, createdAt, sn.bloodGender, {
       spouseId: pair.spouse,
       fatherId: slots.father,
@@ -251,10 +253,13 @@ export function createViewTemplate(
   slots.children.forEach((childIds, si) => {
     const blood = slots.siblings[si].blood;
     const sp = slots.siblings[si].spouse;
+    if (!out[blood] || !out[sp]) return;
     const childNames = names.children[si];
     childIds.forEach((cid, ci) => {
+      const childName = childNames[ci];
+      if (!childName) return;
       const isMale = ci === 0;
-      out[cid] = person(cid, childNames[ci], createdAt, isMale ? 'male' : 'female', {
+      out[cid] = person(cid, childName, createdAt, isMale ? 'male' : 'female', {
         fatherId: blood,
         motherId: sp,
       });
@@ -299,6 +304,22 @@ export function reconcileViewTemplate(
           [slots.children[1][1]]: { from: '큰아버지의 딸', to: '큰형의 딸' },
         }
       : {};
+  const forcedSiblingNames: Record<PersonId, string> =
+    view === 'paternal'
+      ? {
+          [slots.siblings[1].blood]: '큰아버지',
+          [slots.siblings[1].spouse]: '큰어머니',
+          [slots.siblings[3].blood]: '고모',
+          [slots.siblings[3].spouse]: '고모부',
+        }
+      : view === 'maternal'
+        ? {
+            [slots.siblings[1].blood]: '삼촌',
+            [slots.siblings[1].spouse]: '숙모',
+            [slots.siblings[3].blood]: '이모',
+            [slots.siblings[3].spouse]: '이모부',
+          }
+        : {};
 
   for (const [id, template] of Object.entries(fresh)) {
     const existing = out[id];
@@ -316,7 +337,19 @@ export function reconcileViewTemplate(
       ...(legacySelfRename[id] && existing.name === legacySelfRename[id].from
         ? { name: legacySelfRename[id].to }
         : {}),
+      ...(forcedSiblingNames[id] ? { name: forcedSiblingNames[id] } : {}),
     };
+  }
+
+  if (view === 'paternal' || view === 'maternal') {
+    const edgeIdx = [0, 4] as const;
+    edgeIdx.forEach(i => {
+      const pair = slots.siblings[i];
+      delete out[pair.blood];
+      delete out[pair.spouse];
+      const kids = slots.children[i] ?? [];
+      kids.forEach(cid => delete out[cid]);
+    });
   }
 
   for (const pair of slots.siblings) {

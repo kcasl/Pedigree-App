@@ -91,6 +91,14 @@ function roleLabel(view: ActiveView, personId: PersonId): string {
   if (sibIdx >= 0) {
     const pair = s.siblings[sibIdx];
     if (personId === pair.spouse) return '배우자';
+    if (view === 'paternal') {
+      if (sibIdx === 1) return '큰아버지';
+      if (sibIdx === 3) return '고모';
+    }
+    if (view === 'maternal') {
+      if (sibIdx === 1) return '삼촌';
+      if (sibIdx === 3) return '이모';
+    }
     return '형제';
   }
 
