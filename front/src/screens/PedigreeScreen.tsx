@@ -18,6 +18,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { AddPersonModal } from '../components/AddPersonModal';
+import { ContactDirectoryModal } from '../components/ContactDirectoryModal';
 import { PersonDetailModal } from '../components/PersonDetailModal';
 import { EdgeLines } from '../components/EdgeLines';
 import { DraggablePersonNode } from '../components/DraggablePersonNode';
@@ -33,6 +34,7 @@ import {
   savePedigreeStore,
 } from '../storage/pedigreeStorage';
 import { nowIso } from '../utils/date';
+import { normalizePhoneDigits } from '../utils/phone';
 import {
   createDefaultStore,
   migrateLegacyToStore,
@@ -179,6 +181,7 @@ export function PedigreeScreen({
   const [editingId, setEditingId] = useState<PersonId | null>(null);
   const [detailId, setDetailId] = useState<PersonId | null>(null);
   const [settingsVisible, setSettingsVisible] = useState(false);
+  const [contactsVisible, setContactsVisible] = useState(false);
   const [usageVisible, setUsageVisible] = useState(false);
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
 
@@ -444,6 +447,35 @@ export function PedigreeScreen({
     }
     return pairs;
   }, [peopleById]);
+
+  const contactEntries = useMemo(() => {
+    const views: ActiveView[] = ['self', 'paternal', 'maternal', 'spouse'];
+    const seenPhones = new Set<string>();
+    const entries: {
+      id: string;
+      name: string;
+      phone: string;
+      viewLabel: string;
+      kinshipLabel: string;
+    }[] = [];
+
+    for (const view of views) {
+      for (const person of Object.values(store.views[view])) {
+        const digits = normalizePhoneDigits(person.phone);
+        if (!digits || seenPhones.has(digits)) continue;
+        seenPhones.add(digits);
+        entries.push({
+          id: `${view}:${person.id}`,
+          name: person.name?.trim() || '이름 없음',
+          phone: digits,
+          viewLabel: ACTIVE_VIEW_LABEL[view],
+          kinshipLabel: roleLabel(view, person.id),
+        });
+      }
+    }
+
+    return entries;
+  }, [store.views]);
 
   const kinshipLabelById = useMemo(() => {
     const labels: Record<PersonId, string> = {};
@@ -806,6 +838,9 @@ export function PedigreeScreen({
                 <Text style={styles.selfReturnBtnText}>나 시점</Text>
               </Pressable>
             ) : null}
+            <Pressable style={styles.settingsBtn} onPress={() => setContactsVisible(true)}>
+              <Text style={styles.settingsBtnText}>연락처 모아보기</Text>
+            </Pressable>
             <Pressable style={styles.settingsBtn} onPress={() => setSettingsVisible(true)}>
               <Text style={styles.settingsBtnText}>설정</Text>
             </Pressable>
@@ -1126,6 +1161,12 @@ export function PedigreeScreen({
           </Pressable>
         </Pressable>
       </Modal>
+
+      <ContactDirectoryModal
+        visible={contactsVisible}
+        entries={contactEntries}
+        onClose={() => setContactsVisible(false)}
+      />
 
       <Modal
         transparent

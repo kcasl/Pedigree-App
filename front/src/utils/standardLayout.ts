@@ -293,6 +293,45 @@ function resolveGroupCollisions(
   return planned;
 }
 
+function childGroupHalfWidth(
+  entries: ChildEntry[],
+  hasSpouse: boolean,
+  opts: StandardLayoutOptions,
+  uw: number,
+): number {
+  if (!entries.length) return uw / 2;
+  const placements = buildPyramidPlacements(entries, 0, -uw / 2, hasSpouse, opts);
+  if (!placements.length) return uw / 2;
+  const left = placements.reduce((acc, p) => Math.min(acc, p.targetX), Number.POSITIVE_INFINITY);
+  const right = placements.reduce(
+    (acc, p) => Math.max(acc, p.targetX + p.width),
+    Number.NEGATIVE_INFINITY,
+  );
+  if (!Number.isFinite(left) || !Number.isFinite(right)) return uw / 2;
+  return Math.max(uw / 2, (right - left) / 2);
+}
+
+/** 옆 형제 자식 영역과 겹치지 않게 형제 줄 중심 간격만 확장 */
+function expandSiblingCenters(
+  coupleCount: number,
+  halfWidths: number[],
+  baseGap: number,
+  childGap: number,
+  focalIndex: number,
+  focalAnchorX: number,
+): number[] {
+  const centers: number[] = new Array(coupleCount);
+  centers[0] = 0;
+  for (let i = 1; i < coupleCount; i += 1) {
+    const need =
+      (halfWidths[i - 1] ?? baseGap / 2) + (halfWidths[i] ?? baseGap / 2) + childGap;
+    centers[i] = centers[i - 1] + Math.max(baseGap, need);
+  }
+  const fi = Math.max(0, Math.min(focalIndex, coupleCount - 1));
+  const shift = focalAnchorX - centers[fi];
+  return centers.map(c => c + shift);
+}
+
 export function buildStandardPedigreeLayout(
   people: Record<PersonId, Person>,
   options: Partial<StandardLayoutOptions> = {},
@@ -317,6 +356,52 @@ export function buildStandardPedigreeLayout(
   const canvasWidth = Math.max(1600, rowW + opts.padding * 2 + 240);
   const centerX = canvasWidth / 2;
   const siblingRowStartX = centerX - rowW / 2;
+  const baseGap = uw + opts.coupleGap;
+  const baseFocalCenterX = coupleCenterX(siblingRowStartX, focalIndex, opts);
+
+  // 형제 추가 시 옆 자식 줄과 겹치지 않도록 간격만 선계산
+  const preChildIds = new Set<PersonId>();
+  const childEntriesByCouple: ChildEntry[][] = siblingCouples.map((couple, i) => {
+    const kids = collectChildren(people, couple.blood, couple.spouse);
+    const orderedIds: PersonId[] = [];
+    for (const kidId of kids) {
+      if (people[kidId] && !preChildIds.has(kidId)) {
+        orderedIds.push(kidId);
+        preChildIds.add(kidId);
+      }
+    }
+    for (const cid of slots.children[i] ?? []) {
+      if (people[cid] && !preChildIds.has(cid)) {
+        orderedIds.push(cid);
+        preChildIds.add(cid);
+      }
+    }
+    return orderedIds.map(id => {
+      const spouseId =
+        people[id]?.spouseId && people[people[id].spouseId!]
+          ? people[id].spouseId
+          : undefined;
+      return {
+        id,
+        spouseId,
+        width: spouseId ? uw : opts.cardWidth,
+      };
+    });
+  });
+  const halfWidths = Array.from({ length: coupleCount }, (_, i) => {
+    const entries = childEntriesByCouple[i] ?? [];
+    const couple = siblingCouples[i];
+    const hasSpouse = !!(couple?.spouse && people[couple.spouse]);
+    return childGroupHalfWidth(entries, hasSpouse, opts, uw);
+  });
+  const siblingCenters = expandSiblingCenters(
+    coupleCount,
+    halfWidths,
+    baseGap,
+    opts.childGap,
+    focalIndex,
+    baseFocalCenterX,
+  );
 
   const nodes: PositionedNode[] = [];
   const nodeById: Record<PersonId, PositionedNode> = {};
@@ -329,7 +414,7 @@ export function buildStandardPedigreeLayout(
   const yGrand = yParent - opts.rowGap;
   const yGreat = yGrand - opts.rowGap;
 
-  const focalCenterX = coupleCenterX(siblingRowStartX, focalIndex, opts);
+  const focalCenterX = siblingCenters[Math.max(0, Math.min(focalIndex, siblingCenters.length - 1))];
   const parentCoupleX = focalCenterX - uw / 2;
   const fatherCenterX = parentCoupleX + opts.cardWidth / 2;
   const motherCenterX = parentCoupleX + opts.cardWidth + opts.spouseGap + opts.cardWidth / 2;
@@ -346,7 +431,7 @@ export function buildStandardPedigreeLayout(
 
   siblingCouples.forEach((couple, i) => {
     if (!people[couple.blood]) return;
-    const x = siblingRowStartX + i * (uw + opts.coupleGap);
+    const x = siblingCenters[i] - uw / 2;
     placeCoupleNode(
       nodes,
       nodeById,
@@ -415,34 +500,10 @@ export function buildStandardPedigreeLayout(
 
   const childGroupDrafts: ChildGroupResolved[] = [];
   siblingCouples.forEach((couple, i) => {
-    const kids = collectChildren(people, couple.blood, couple.spouse);
-    const orderedIds: PersonId[] = [];
-    for (const kidId of kids) {
-      if (people[kidId] && !placedChildIds.has(kidId)) {
-        orderedIds.push(kidId);
-        placedChildIds.add(kidId);
-      }
-    }
-    for (const cid of slots.children[i] ?? []) {
-      if (people[cid] && !placedChildIds.has(cid)) {
-        orderedIds.push(cid);
-        placedChildIds.add(cid);
-      }
-    }
-    if (!orderedIds.length) return;
+    const entries = childEntriesByCouple[i] ?? [];
+    if (!entries.length) return;
 
-    const entries: ChildEntry[] = orderedIds.map(id => {
-      const spouseId =
-        people[id]?.spouseId && people[people[id].spouseId!]
-          ? people[id].spouseId
-          : undefined;
-      return {
-        id,
-        spouseId,
-        width: spouseId ? uw : opts.cardWidth,
-      };
-    });
-    const coupleCenter = coupleCenterX(siblingRowStartX, i, opts);
+    const coupleCenter = siblingCenters[i];
     const coupleLeftX = coupleCenter - uw / 2;
     const hasSpouse = !!(couple.spouse && people[couple.spouse]);
     childGroupDrafts.push({
@@ -452,10 +513,12 @@ export function buildStandardPedigreeLayout(
   });
 
   const childGroups = resolveGroupCollisions(childGroupDrafts, opts.childGap);
-  let maxContentRight = siblingRowStartX + rowW;
+  let maxContentRight = siblingCenters.reduce((acc, c) => Math.max(acc, c + uw / 2), 0);
   childGroups.forEach(group => {
     group.placements.forEach(entry => {
+      if (placedChildIds.has(entry.id)) return;
       placeCoupleNode(nodes, nodeById, entry.id, entry.spouseId, entry.targetX, yChild, 1, opts);
+      placedChildIds.add(entry.id);
       childUnits.push({
         bloodId: entry.id,
         spouseId: entry.spouseId,
