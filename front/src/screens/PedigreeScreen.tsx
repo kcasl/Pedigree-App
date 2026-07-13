@@ -36,13 +36,12 @@ import {
   savePedigreeStore,
 } from '../storage/pedigreeStorage';
 import { nowIso } from '../utils/date';
-import { buildKinshipLabels } from '../utils/kinship';
-import { buildChildOrdinalLabels } from '../utils/birthOrder';
-import { buildSiblingKinshipLabels } from '../utils/siblingKinship';
+import { buildViewKinshipLabels, buildViewOrdinalLabels, syncAllViews, syncStoreAfterEdit } from '../utils/viewSync';
 import { normalizePhoneDigits } from '../utils/phone';
 import {
   createDefaultStore,
   migrateLegacyToStore,
+  reconcileStore,
   SELF_SLOT_INDEX,
   slotIdsForView,
 } from '../utils/standardTemplate';
@@ -80,45 +79,6 @@ type PendingPatchPayload = {
 
 function createInitialStore(): PedigreeStore {
   return createDefaultStore(nowIso());
-}
-
-function roleLabel(view: ActiveView, personId: PersonId): string {
-  const s = slotIdsForView(view);
-  if (personId === s.selfId) return '본인';
-  if (personId === s.father) return '부';
-  if (personId === s.mother) return '모';
-  if (personId === s.spouseId) return '배우자';
-  if (personId === s.gf || personId === s.gm || personId === s.mgf || personId === s.mgm) {
-    return '조부모';
-  }
-  if (personId === s.ggf || personId === s.ggm) return '증조부모';
-  const sibIdx = s.siblings.findIndex(p => p.blood === personId || p.spouse === personId);
-  if (sibIdx >= 0) {
-    const pair = s.siblings[sibIdx];
-    if (personId === pair.spouse) return '배우자';
-    if (view === 'paternal') {
-      if (sibIdx === 1) return '큰아버지';
-      if (sibIdx === 3) return '고모';
-    }
-    if (view === 'maternal') {
-      if (sibIdx === 1) return '삼촌';
-      if (sibIdx === 3) return '이모';
-    }
-    return '형제';
-  }
-
-  if (view === 'self') {
-    const selfChildSet = new Set(s.children[SELF_SLOT_INDEX] ?? []);
-    if (selfChildSet.has(personId)) return '자식';
-
-    const siblingChildSet = new Set(
-      s.children.flatMap((ids, idx) => (s.siblings[idx].blood === s.selfId ? [] : ids)),
-    );
-    if (siblingChildSet.has(personId)) return '조카';
-
-    if (personId.startsWith('me_gc')) return '손자';
-  }
-  return '친족';
 }
 
 function inferParentRole(
@@ -167,18 +127,14 @@ export function PedigreeScreen({
   const updateActiveViewPeople = (
     updater: (prev: Record<PersonId, Person>) => Record<PersonId, Person>,
   ) => {
-    setStore(prev => ({
-      ...prev,
-      views: {
-        ...prev.views,
-        [prev.activeView]: updater(prev.views[prev.activeView]),
-      },
-    }));
+    setStore(prev =>
+      syncStoreAfterEdit(prev, prev.activeView, updater(prev.views[prev.activeView])),
+    );
   };
 
   const switchLineageView = (view: ActiveView) => {
     const nextSlots = slotIdsForView(view);
-    setStore(prev => ({ ...prev, activeView: view }));
+    setStore(prev => syncAllViews({ ...prev, activeView: view }));
     setSelectedId(nextSlots.selfId);
     setActionVisible(false);
   };
@@ -265,13 +221,14 @@ export function PedigreeScreen({
       try {
         const localStore = await loadPedigreeStore();
         if (mounted && localStore) {
-          setStore(localStore);
-          lastSyncedPeopleRef.current = localStore.views[localStore.activeView];
-          setSelectedId(slotIdsForView(localStore.activeView).selfId);
+          const synced = syncAllViews(localStore);
+          setStore(synced);
+          lastSyncedPeopleRef.current = synced.views[synced.activeView];
+          setSelectedId(slotIdsForView(synced.activeView).selfId);
         } else if (mounted) {
-          const initial = createInitialStore();
+          const initial = syncAllViews(createInitialStore());
           setStore(initial);
-          lastSyncedPeopleRef.current = initial.views.paternal;
+          lastSyncedPeopleRef.current = initial.views[initial.activeView];
         }
 
         if (ENABLE_SERVER_SYNC) {
@@ -289,9 +246,9 @@ export function PedigreeScreen({
         }
       } catch {
         if (mounted) {
-          const initial = createInitialStore();
+          const initial = syncAllViews(createInitialStore());
           setStore(initial);
-          lastSyncedPeopleRef.current = initial.views.paternal;
+          lastSyncedPeopleRef.current = initial.views[initial.activeView];
         }
       }
 
@@ -310,13 +267,14 @@ export function PedigreeScreen({
             const remotePeople = parseStoredPeople(JSON.stringify(remotePeopleRaw));
             const localStore = await loadPedigreeStore();
             if (mounted && remotePeople) {
-              const migrated = migrateLegacyToStore(remotePeople);
+              const migrated = syncAllViews(reconcileStore(migrateLegacyToStore(remotePeople)));
               setStore(migrated);
-              lastSyncedPeopleRef.current = migrated.views.paternal;
+              lastSyncedPeopleRef.current = migrated.views[migrated.activeView];
               await savePedigreeStore(migrated);
             } else if (mounted && !localStore) {
-              const initial = createInitialStore();
+              const initial = syncAllViews(createInitialStore());
               setStore(initial);
+              lastSyncedPeopleRef.current = initial.views[initial.activeView];
               lastSyncedPeopleRef.current = initial.views.paternal;
             }
             if (mounted) setSyncStatus('synced');
@@ -493,7 +451,7 @@ export function PedigreeScreen({
           name: person.name?.trim() || '이름 없음',
           phone: digits,
           viewLabel: ACTIVE_VIEW_LABEL[view],
-          kinshipLabel: roleLabel(view, person.id),
+          kinshipLabel: buildViewKinshipLabels(view, store.views[view])[person.id] ?? person.name,
         });
       }
     }
@@ -501,33 +459,15 @@ export function PedigreeScreen({
     return entries;
   }, [store.views]);
 
-  const kinshipLabelById = useMemo(() => {
-    if (activeView === 'self') {
-      const labels = buildKinshipLabels(peopleById, slots.selfId);
-      const siblingBloodIds = slots.siblings.map(s => s.blood);
-      Object.assign(labels, buildSiblingKinshipLabels(peopleById, slots.selfId, siblingBloodIds));
-      return labels;
-    }
-    const labels: Record<PersonId, string> = {};
-    for (const id of Object.keys(peopleById)) {
-      labels[id] = roleLabel(activeView, id);
-    }
-    return labels;
-  }, [peopleById, activeView, slots]);
+  const kinshipLabelById = useMemo(
+    () => buildViewKinshipLabels(activeView, peopleById),
+    [peopleById, activeView],
+  );
 
-  const ordinalLabelById = useMemo(() => {
-    if (activeView !== 'self') return {} as Record<PersonId, string>;
-    const parentPairs: Array<{ bloodId: PersonId; spouseId?: PersonId }> = [];
-    for (const sib of slots.siblings) {
-      const blood = peopleById[sib.blood];
-      if (!blood) continue;
-      parentPairs.push({
-        bloodId: sib.blood,
-        spouseId: blood.spouseId && peopleById[blood.spouseId] ? blood.spouseId : undefined,
-      });
-    }
-    return buildChildOrdinalLabels(peopleById, parentPairs);
-  }, [peopleById, activeView, slots]);
+  const ordinalLabelById = useMemo(
+    () => buildViewOrdinalLabels(activeView, peopleById),
+    [peopleById, activeView],
+  );
 
   const MIN_SCALE = 0.25;
   const MAX_SCALE = 2.8;
@@ -799,10 +739,10 @@ export function PedigreeScreen({
         style: 'destructive',
         onPress: async () => {
           // 초기화 시 기본 족보 포맷(나·부모·양가 조부모·배우자·자녀)으로 복원
-          const initial = createInitialStore();
+          const initial = syncAllViews(createInitialStore());
           setStore(initial);
           setSelectedId(slotIdsForView('self').selfId);
-          lastSyncedPeopleRef.current = initial.views.paternal;
+          lastSyncedPeopleRef.current = initial.views[initial.activeView];
           deletedIdsRef.current.clear();
           queueRef.current = [];
           setSyncStatus('idle');

@@ -21,7 +21,10 @@ import type { Edge, PositionedNode } from '../utils/pedigreeLayout';
 
 export const EDGE_DRAW_CONFIG = {
   enabled: true,
-  spouseLineOffset: 6,
+  /** 모든 세대 — 부부 가로선을 카드 하단에서 아래로 (노드 위치 그대로) */
+  spouseLineOffset: 18,
+  /** 모든 세대 — 부부선~자녀 사이 가로 rail 추가 하강 */
+  railDrop: 8,
   trunkGap: 18,
   childGap: 14,
   strokeWidth: 2.5,
@@ -179,9 +182,17 @@ function buildGroups(
   return { groups: Array.from(groupMap.values()), drawnCouples };
 }
 
-/** 세대 사이 세로 간격을 정확히 이등분한 rail Y (픽셀 스냅) */
-function railY(parentBottom: number, childTop: number, _cfg: typeof EDGE_DRAW_CONFIG): number {
-  return Math.round((parentBottom + childTop) / 2);
+/** 부부 가로선(baseY)과 자녀 top 사이 rail — 모든 세대 동일 */
+function coupleRailY(
+  baseY: number,
+  minChildTop: number,
+  cfg: typeof EDGE_DRAW_CONFIG,
+): number {
+  return Math.round((baseY + minChildTop) / 2 + cfg.railDrop);
+}
+
+function lineColor(fallbackColor: string | undefined): string {
+  return fallbackColor ?? EDGE_DRAW_CONFIG.color;
 }
 
 type Ctx = {
@@ -215,8 +226,8 @@ function drawCouple(group: CoupleGroup, ctx: Ctx): void {
   const maxChildX = Math.max(...childXs);
   const minChildTop = Math.min(...children.map(top));
   const childGeneration = children[0]?.generation ?? left.generation + 1;
-  const parentColor = fallbackColor ?? ui.generationLine(left.generation);
-  const childColor = fallbackColor ?? ui.generationLine(childGeneration);
+  const parentColor = lineColor(fallbackColor);
+  const childColor = lineColor(fallbackColor);
 
   const key = pairKey(group.leftId, group.rightId);
 
@@ -227,7 +238,7 @@ function drawCouple(group: CoupleGroup, ctx: Ctx): void {
     />,
   );
 
-  const ry = railY(parentBottom, minChildTop, cfg);
+  const ry = coupleRailY(baseY, minChildTop, cfg);
 
   out.push(
     <View key={`c_v_${key}`} style={bar(midX - stroke / 2, baseY, stroke, Math.max(stroke, ry - baseY), parentColor, stroke)} />,
@@ -263,16 +274,20 @@ function drawSingle(group: SingleGroup, ctx: Ctx): void {
 
   const px = cx(parent);
   const pBot = bottom(parent);
+  const trunkStart = pBot + cfg.spouseLineOffset;
   const childXs = children.map(cx);
   const minChildTop = Math.min(...children.map(top));
-  const ry = railY(pBot, minChildTop, cfg);
-  const pid = group.parentId;
   const childGeneration = children[0]?.generation ?? parent.generation + 1;
-  const parentColor = fallbackColor ?? ui.generationLine(parent.generation);
-  const childColor = fallbackColor ?? ui.generationLine(childGeneration);
+  const ry = coupleRailY(trunkStart, minChildTop, cfg);
+  const pid = group.parentId;
+  const parentColor = lineColor(fallbackColor);
+  const childColor = lineColor(fallbackColor);
 
   out.push(
-    <View key={`s_v_${pid}`} style={bar(px - stroke / 2, pBot, stroke, ry - pBot, parentColor, stroke)} />,
+    <View
+      key={`s_v_${pid}`}
+      style={bar(px - stroke / 2, trunkStart, stroke, Math.max(stroke, ry - trunkStart), parentColor, stroke)}
+    />,
   );
 
   const railLeft = Math.min(px, ...childXs);
@@ -314,7 +329,7 @@ function drawSpouseOnly(
     const leftEdge = left.x + left.width;
     const rightEdge = right.x;
     const y = Math.max(bottom(left), bottom(right)) + cfg.spouseLineOffset;
-    const spouseColor = fallbackColor ?? ui.generationLine(left.generation);
+    const spouseColor = lineColor(fallbackColor);
 
     out.push(
       <View
@@ -348,7 +363,15 @@ export function EdgeLines({
     drawSpouseOnly(spousePairs, drawnCouples, nodeById, ctx);
 
     return out;
-  }, [edges, nodeById, spousePairs, strokeWidth, color]);
+  }, [
+    edges,
+    nodeById,
+    spousePairs,
+    strokeWidth,
+    color,
+    EDGE_DRAW_CONFIG.spouseLineOffset,
+    EDGE_DRAW_CONFIG.railDrop,
+  ]);
 
   if (!content?.length) return null;
 

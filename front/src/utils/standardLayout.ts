@@ -11,7 +11,8 @@ import {
   SELF_SLOT_INDEX,
   slotIdsForView,
 } from './standardTemplate';
-import { orderSiblingCouplesAroundFocal, sortIdsByBirth } from './birthOrder';
+import { orderSiblingCouplesAroundFocal, sortChildIdsForLayout } from './birthOrder';
+import { defaultSiblingBloodOrder } from './viewSync';
 
 export type StandardLayoutOptions = {
   view: ActiveView;
@@ -103,7 +104,7 @@ function collectChildren(
       ids.push(p.id);
     }
   }
-  return sortIdsByBirth(ids, people);
+  return sortChildIdsForLayout(ids, people);
 }
 
 function placeCoupleNode(
@@ -353,7 +354,23 @@ export function buildStandardPedigreeLayout(
   if (focalIndex < 0) focalIndex = SELF_SLOT_INDEX;
 
   if (opts.view === 'self') {
-    const ordered = orderSiblingCouplesAroundFocal(siblingCouples, focalId, people);
+    const defaultBloodOrder = defaultSiblingBloodOrder('self', slots);
+    const ordered = orderSiblingCouplesAroundFocal(
+      siblingCouples,
+      focalId,
+      people,
+      defaultBloodOrder,
+    );
+    siblingCouples = ordered.couples;
+    focalIndex = ordered.focalIndex;
+  } else {
+    const defaultBloodOrder = defaultSiblingBloodOrder(opts.view, slots);
+    const ordered = orderSiblingCouplesAroundFocal(
+      siblingCouples,
+      focalId,
+      people,
+      defaultBloodOrder,
+    );
     siblingCouples = ordered.couples;
     focalIndex = ordered.focalIndex;
   }
@@ -368,22 +385,27 @@ export function buildStandardPedigreeLayout(
   const baseFocalCenterX = coupleCenterX(siblingRowStartX, focalIndex, opts);
 
   // 형제 추가 시 옆 자식 줄과 겹치지 않도록 간격만 선계산
-  const preChildIds = new Set<PersonId>();
-  const childEntriesByCouple: ChildEntry[][] = siblingCouples.map((couple, i) => {
+  const childEntriesByCouple: ChildEntry[][] = siblingCouples.map(couple => {
+    const slotIndex = slots.siblings.findIndex(s => s.blood === couple.blood);
     const kids = collectChildren(people, couple.blood, couple.spouse);
     const orderedIds: PersonId[] = [];
+    const seen = new Set<PersonId>();
+
     for (const kidId of kids) {
-      if (people[kidId] && !preChildIds.has(kidId)) {
+      if (people[kidId] && !seen.has(kidId)) {
         orderedIds.push(kidId);
-        preChildIds.add(kidId);
+        seen.add(kidId);
       }
     }
-    for (const cid of slots.children[i] ?? []) {
-      if (people[cid] && !preChildIds.has(cid)) {
-        orderedIds.push(cid);
-        preChildIds.add(cid);
+    if (slotIndex >= 0) {
+      for (const cid of slots.children[slotIndex] ?? []) {
+        if (people[cid] && !seen.has(cid)) {
+          orderedIds.push(cid);
+          seen.add(cid);
+        }
       }
     }
+
     return orderedIds.map(id => {
       const spouseId =
         people[id]?.spouseId && people[people[id].spouseId!]

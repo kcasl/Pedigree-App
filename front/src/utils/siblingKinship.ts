@@ -4,6 +4,29 @@ import { compareAgeToSelf, type AgeRelation } from './birthOrder';
 export function siblingBloodLabel(self: Person, sibling: Person): string {
   const rel = compareAgeToSelf(self, sibling);
   if (rel === 'same' || rel === 'unknown') return '형제';
+
+  if (self.gender === 'female') {
+    if (rel === 'older') {
+      if (sibling.gender === 'male') return '오빠';
+      if (sibling.gender === 'female') return '언니';
+      return '형제';
+    }
+    if (sibling.gender === 'male') return '남동생';
+    if (sibling.gender === 'female') return '여동생';
+    return '형제';
+  }
+
+  if (self.gender === 'male') {
+    if (rel === 'older') {
+      if (sibling.gender === 'male') return '형';
+      if (sibling.gender === 'female') return '누나';
+      return '형제';
+    }
+    if (sibling.gender === 'male') return '남동생';
+    if (sibling.gender === 'female') return '여동생';
+    return '형제';
+  }
+
   if (rel === 'older') {
     if (sibling.gender === 'male') return '형';
     if (sibling.gender === 'female') return '누나';
@@ -14,10 +37,14 @@ export function siblingBloodLabel(self: Person, sibling: Person): string {
   return '형제';
 }
 
-function spouseLabelBySiblingRelation(rel: AgeRelation, siblingGender?: Person['gender']): string {
+function spouseLabelBySiblingRelation(
+  rel: AgeRelation,
+  siblingGender: Person['gender'] | undefined,
+  selfGender: Person['gender'] | undefined,
+): string {
   if (rel === 'older') {
     if (siblingGender === 'male') return '형수';
-    if (siblingGender === 'female') return '매형';
+    if (siblingGender === 'female') return selfGender === 'female' ? '형부' : '매형';
   }
   if (rel === 'younger') {
     if (siblingGender === 'male') return '제수';
@@ -29,7 +56,7 @@ function spouseLabelBySiblingRelation(rel: AgeRelation, siblingGender?: Person['
 export function siblingSpouseLabel(self: Person, siblingBlood: Person): string {
   const rel = compareAgeToSelf(self, siblingBlood);
   if (rel === 'same' || rel === 'unknown') return '인척';
-  return spouseLabelBySiblingRelation(rel, siblingBlood.gender);
+  return spouseLabelBySiblingRelation(rel, siblingBlood.gender, self.gender);
 }
 
 export function buildSiblingKinshipLabels(

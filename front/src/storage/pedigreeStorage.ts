@@ -9,6 +9,7 @@ import {
   reconcileStore,
   slotIdsForView,
 } from '../utils/standardTemplate';
+import { syncAllViews } from '../utils/viewSync';
 
 export const PEDIGREE_STORAGE_KEY = 'pedigree.store.local.v2';
 export const NODE_OFFSETS_STORAGE_KEY = 'pedigree.nodeOffsets.local.v2';
@@ -24,7 +25,7 @@ function parseStore(raw: string | null): PedigreeStore | null {
     if (!parsed || typeof parsed !== 'object') return null;
 
     if (isLegacyFlatPedigree(parsed)) {
-      return migrateLegacyToStore(parsed);
+      return syncAllViews(reconcileStore(migrateLegacyToStore(parsed)));
     }
 
     const store = parsed as PedigreeStore;
@@ -42,7 +43,7 @@ function parseStore(raw: string | null): PedigreeStore | null {
 
     const selfKey = slotIdsForView('self').selfId;
     if (!store.views.self[selfKey]) return null;
-    return reconcileStore(store);
+    return syncAllViews(reconcileStore(store));
   } catch {
     return null;
   }
