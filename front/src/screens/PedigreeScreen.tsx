@@ -562,6 +562,14 @@ export function PedigreeScreen({
     savedY.value = nextY;
   }, [savedScale, savedX, savedY, scale, translateX, translateY]);
 
+  const recenterToSelfView = () => {
+    if (activeView !== 'self') {
+      switchToSelfView();
+      return;
+    }
+    centerOnPedigree(true);
+  };
+
   useEffect(() => {
     if (!isHydrated) return;
     if (stageSize.width <= 0 || stageSize.height <= 0) return;
@@ -940,8 +948,11 @@ export function PedigreeScreen({
         <Pressable style={styles.zoomBtn} onPress={() => zoomBy(1.2)}>
           <Text style={styles.zoomText}>+</Text>
         </Pressable>
+        <Pressable style={[styles.zoomBtn, styles.zoomCenterBtn]} onPress={recenterToSelfView}>
+          <Text style={styles.zoomCenterText}>나</Text>
+        </Pressable>
         <Pressable style={styles.zoomBtn} onPress={() => zoomBy(1 / 1.2)}>
-          <Text style={styles.zoomText}>-</Text>
+          <Text style={styles.zoomText}>−</Text>
         </Pressable>
       </View>
 
@@ -1347,6 +1358,15 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: ui.weight.heading,
     marginTop: -2,
+  },
+  zoomCenterBtn: {
+    borderColor: '#2e7d32',
+    backgroundColor: '#f1f8e9',
+  },
+  zoomCenterText: {
+    color: '#1b5e20',
+    fontSize: 14,
+    fontWeight: ui.weight.title,
   },
   sheetBackdrop: {
     flex: 1,
