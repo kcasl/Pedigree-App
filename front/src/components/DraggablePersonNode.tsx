@@ -6,6 +6,7 @@ import type { Person } from '../types/pedigree';
 type Props = {
   person: Person;
   label: string;
+  ordinalLabel?: string;
   width: number;
   onPress: () => void;
   style?: ViewStyle;
@@ -16,6 +17,7 @@ type Props = {
 export function DraggablePersonNode({
   person,
   label,
+  ordinalLabel,
   width,
   onPress,
   style,
@@ -26,6 +28,7 @@ export function DraggablePersonNode({
     <View style={style}>
       <PersonNodeCard
         label={label}
+        ordinalLabel={ordinalLabel}
         person={person}
         onPress={onPress}
         highlighted={highlighted}

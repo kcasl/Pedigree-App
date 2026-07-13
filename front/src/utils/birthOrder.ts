@@ -85,3 +85,37 @@ export function sortIdsByBirth(ids: PersonId[], people: Record<PersonId, Person>
     .filter(id => people[id])
     .sort((a, b) => compareByBirthAsc(people[a]!, people[b]!));
 }
+
+function collectChildIds(
+  people: Record<PersonId, Person>,
+  bloodId: PersonId,
+  spouseId?: PersonId,
+): PersonId[] {
+  const ids: PersonId[] = [];
+  for (const p of Object.values(people)) {
+    if (!p.fatherId && !p.motherId) continue;
+    if (spouseId) {
+      const ok =
+        (p.fatherId === bloodId && p.motherId === spouseId) ||
+        (p.fatherId === spouseId && p.motherId === bloodId);
+      if (ok) ids.push(p.id);
+    } else if (p.fatherId === bloodId || p.motherId === bloodId) {
+      ids.push(p.id);
+    }
+  }
+  return ids;
+}
+
+export function buildChildOrdinalLabels(
+  people: Record<PersonId, Person>,
+  parentPairs: Array<{ bloodId: PersonId; spouseId?: PersonId }>,
+): Record<PersonId, string> {
+  const out: Record<PersonId, string> = {};
+  for (const pair of parentPairs) {
+    const kids = sortIdsByBirth(collectChildIds(people, pair.bloodId, pair.spouseId), people);
+    kids.forEach((id, index) => {
+      out[id] = ordinalLabel(index);
+    });
+  }
+  return out;
+}

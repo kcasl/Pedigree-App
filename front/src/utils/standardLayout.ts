@@ -11,7 +11,7 @@ import {
   SELF_SLOT_INDEX,
   slotIdsForView,
 } from './standardTemplate';
-import { orderSiblingCouplesAroundFocal } from './birthOrder';
+import { orderSiblingCouplesAroundFocal, sortIdsByBirth } from './birthOrder';
 
 export type StandardLayoutOptions = {
   view: ActiveView;
@@ -103,7 +103,7 @@ function collectChildren(
       ids.push(p.id);
     }
   }
-  return ids.sort();
+  return sortIdsByBirth(ids, people);
 }
 
 function placeCoupleNode(

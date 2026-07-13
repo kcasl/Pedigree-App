@@ -12,6 +12,7 @@ import { ui } from '../theme/ui';
 
 type Props = {
   label: string;
+  ordinalLabel?: string;
   person?: Person;
   onPress: () => void;
   style?: ViewStyle;
@@ -59,7 +60,15 @@ function fallbackAvatarTheme(gender?: Person['gender']): FallbackAvatarTheme {
   };
 }
 
-export function PersonNodeCard({ label, person, onPress, style, highlighted, generation = 0 }: Props) {
+export function PersonNodeCard({
+  label,
+  ordinalLabel,
+  person,
+  onPress,
+  style,
+  highlighted,
+  generation = 0,
+}: Props) {
   const rowBg = ui.generationSurface(generation);
   const avatarTheme = fallbackAvatarTheme(person?.gender);
 
@@ -77,6 +86,7 @@ export function PersonNodeCard({ label, person, onPress, style, highlighted, gen
     >
       <View style={styles.header}>
         <Text style={styles.badge}>{label}</Text>
+        {ordinalLabel ? <Text style={styles.ordinalBadge}>{ordinalLabel}</Text> : null}
       </View>
 
       <View style={styles.content}>
@@ -139,7 +149,9 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: 'row',
-    justifyContent: 'flex-start',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 6,
   },
   badge: {
     fontSize: 12,
@@ -152,6 +164,18 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     overflow: 'hidden',
     fontWeight: ui.weight.label,
+  },
+  ordinalBadge: {
+    fontSize: 11,
+    color: ui.color.accentDark,
+    backgroundColor: ui.color.accentBg,
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 999,
+    overflow: 'hidden',
+    fontWeight: ui.weight.title,
   },
   content: {
     marginTop: 10,

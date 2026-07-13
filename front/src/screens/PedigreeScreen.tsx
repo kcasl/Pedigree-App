@@ -37,6 +37,7 @@ import {
 } from '../storage/pedigreeStorage';
 import { nowIso } from '../utils/date';
 import { buildKinshipLabels } from '../utils/kinship';
+import { buildChildOrdinalLabels } from '../utils/birthOrder';
 import { buildSiblingKinshipLabels } from '../utils/siblingKinship';
 import { normalizePhoneDigits } from '../utils/phone';
 import {
@@ -514,6 +515,20 @@ export function PedigreeScreen({
     return labels;
   }, [peopleById, activeView, slots]);
 
+  const ordinalLabelById = useMemo(() => {
+    if (activeView !== 'self') return {} as Record<PersonId, string>;
+    const parentPairs: Array<{ bloodId: PersonId; spouseId?: PersonId }> = [];
+    for (const sib of slots.siblings) {
+      const blood = peopleById[sib.blood];
+      if (!blood) continue;
+      parentPairs.push({
+        bloodId: sib.blood,
+        spouseId: blood.spouseId && peopleById[blood.spouseId] ? blood.spouseId : undefined,
+      });
+    }
+    return buildChildOrdinalLabels(peopleById, parentPairs);
+  }, [peopleById, activeView, slots]);
+
   const MIN_SCALE = 0.25;
   const MAX_SCALE = 2.8;
   const clampScaleOnJs = (v: number) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, v));
@@ -939,6 +954,7 @@ export function PedigreeScreen({
                   <DraggablePersonNode
                     person={p}
                     label={kinshipLabelById[p.id] ?? p.name}
+                    ordinalLabel={ordinalLabelById[p.id]}
                     width={n.width}
                     highlighted={layout.highlightIds.has(n.id)}
                     generation={n.generation}
@@ -956,11 +972,11 @@ export function PedigreeScreen({
         <Pressable style={styles.zoomBtn} onPress={() => zoomBy(1.2)}>
           <Text style={styles.zoomText}>+</Text>
         </Pressable>
-        <Pressable style={[styles.zoomBtn, styles.zoomCenterBtn]} onPress={recenterToSelfView}>
-          <Text style={styles.zoomCenterText}>나</Text>
-        </Pressable>
         <Pressable style={styles.zoomBtn} onPress={() => zoomBy(1 / 1.2)}>
           <Text style={styles.zoomText}>−</Text>
+        </Pressable>
+        <Pressable style={[styles.zoomBtn, styles.zoomCenterBtn]} onPress={recenterToSelfView}>
+          <Text style={styles.zoomCenterText}>中</Text>
         </Pressable>
       </View>
 
@@ -1373,8 +1389,9 @@ const styles = StyleSheet.create({
   },
   zoomCenterText: {
     color: '#1b5e20',
-    fontSize: 14,
-    fontWeight: ui.weight.title,
+    fontSize: 18,
+    fontWeight: ui.weight.heading,
+    marginTop: -1,
   },
   sheetBackdrop: {
     flex: 1,
