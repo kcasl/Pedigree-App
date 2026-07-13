@@ -11,6 +11,7 @@ import {
   SELF_SLOT_INDEX,
   slotIdsForView,
 } from './standardTemplate';
+import { orderSiblingCouplesAroundFocal } from './birthOrder';
 
 export type StandardLayoutOptions = {
   view: ActiveView;
@@ -341,16 +342,23 @@ export function buildStandardPedigreeLayout(
   const focalId = focalBloodId(opts.view, slots);
   const uw = unitW(opts);
 
-  const siblingCouples = collectSiblingCouples(
+  let siblingCouples = collectSiblingCouples(
     people,
     slots.father,
     slots.mother,
     slots,
   );
 
-  const coupleCount = Math.max(DEFAULT_SIBLING_SLOTS, siblingCouples.length);
   let focalIndex = siblingCouples.findIndex(c => c.blood === focalId);
   if (focalIndex < 0) focalIndex = SELF_SLOT_INDEX;
+
+  if (opts.view === 'self') {
+    const ordered = orderSiblingCouplesAroundFocal(siblingCouples, focalId, people);
+    siblingCouples = ordered.couples;
+    focalIndex = ordered.focalIndex;
+  }
+
+  const coupleCount = Math.max(DEFAULT_SIBLING_SLOTS, siblingCouples.length);
 
   const rowW = coupleCount * uw + (coupleCount - 1) * opts.coupleGap;
   const canvasWidth = Math.max(1600, rowW + opts.padding * 2 + 240);

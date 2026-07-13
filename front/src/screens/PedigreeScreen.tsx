@@ -36,6 +36,7 @@ import {
   savePedigreeStore,
 } from '../storage/pedigreeStorage';
 import { nowIso } from '../utils/date';
+import { buildSiblingKinshipLabels } from '../utils/siblingKinship';
 import { normalizePhoneDigits } from '../utils/phone';
 import {
   createDefaultStore,
@@ -503,8 +504,13 @@ export function PedigreeScreen({
     for (const id of Object.keys(peopleById)) {
       labels[id] = roleLabel(activeView, id);
     }
+    if (activeView === 'self') {
+      const siblingBloodIds = slots.siblings.map(s => s.blood);
+      const siblingLabels = buildSiblingKinshipLabels(peopleById, slots.selfId, siblingBloodIds);
+      Object.assign(labels, siblingLabels);
+    }
     return labels;
-  }, [peopleById, activeView]);
+  }, [peopleById, activeView, slots]);
 
   const MIN_SCALE = 0.25;
   const MAX_SCALE = 2.8;
