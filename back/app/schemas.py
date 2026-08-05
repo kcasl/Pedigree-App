@@ -37,3 +37,17 @@ class SnapshotResponse(BaseModel):
     user_id: int
     people_by_id: dict[str, Any]
     updated_at: datetime
+
+
+class ShareCreateRequest(BaseModel):
+    store: dict[str, Any]
+
+
+class ShareCreateResponse(BaseModel):
+    key: str
+
+
+class ShareGetResponse(BaseModel):
+    key: str
+    store: dict[str, Any]
+    created_at: datetime

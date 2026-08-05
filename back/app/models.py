@@ -43,3 +43,16 @@ class PedigreeSnapshot(Base):
     )
 
     user: Mapped[User] = relationship(back_populates="snapshot")
+
+
+class SharedPedigree(Base):
+    """공개 공유 키로 조회하는 족보 스냅샷 (로그인 불필요)."""
+
+    __tablename__ = "shared_pedigrees"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    share_key: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    store_json: Mapped[dict] = mapped_column(MySQLJSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False
+    )

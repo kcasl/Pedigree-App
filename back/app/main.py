@@ -1,19 +1,20 @@
 import base64
 import gzip
-import io
 import json
 import os
-import uuid
+import secrets
+import string
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
-from PIL import Image
 from sqlalchemy.orm import Session
 
 from .crud import (
     apply_snapshot_patch,
+    create_shared_pedigree,
     delete_snapshot,
+    get_shared_pedigree,
     get_snapshot,
     get_user_by_google_sub,
     upsert_snapshot,
@@ -24,12 +25,31 @@ from .crud import (
 from .database import Base, engine, get_db
 from .schemas import (
     GoogleLoginRequest,
+    ShareCreateRequest,
+    ShareCreateResponse,
+    ShareGetResponse,
     SnapshotPatchRequest,
     SnapshotResponse,
     SnapshotUpsertRequest,
     UserResponse,
 )
 from .config import settings
+from .images import (
+    MAX_UPLOAD_BYTES,
+    delete_local_upload,
+    save_compressed_photo,
+)
+
+SHARE_KEY_ALPHABET = string.ascii_letters + string.digits
+SHARE_KEY_LENGTH = 10
+
+
+def generate_share_key(db: Session) -> str:
+    for _ in range(20):
+        key = "".join(secrets.choice(SHARE_KEY_ALPHABET) for _ in range(SHARE_KEY_LENGTH))
+        if not get_shared_pedigree(db, key):
+            return key
+    raise HTTPException(status_code=500, detail="failed to allocate share key")
 
 app = FastAPI(title="Pedigree API", version="1.0.0")
 app.add_middleware(GZipMiddleware, minimum_size=1024)
@@ -216,13 +236,71 @@ def patch_pedigree(
     )
 
 
+@app.post("/v1/share/pedigree", response_model=ShareCreateResponse)
+def create_pedigree_share(
+    payload: ShareCreateRequest,
+    db: Session = Depends(get_db),
+) -> ShareCreateResponse:
+    """공개 족보 공유 생성 — 로그인 불필요. `{google_sub}` 경로와 충돌 방지를 위해 /v1/share 사용."""
+    store = payload.store
+    if not isinstance(store, dict) or "views" not in store:
+        raise HTTPException(status_code=400, detail="invalid store payload")
+
+    key = generate_share_key(db)
+    create_shared_pedigree(db, key, store)
+    return ShareCreateResponse(key=key)
+
+
+@app.get("/v1/share/pedigree/{share_key}", response_model=ShareGetResponse)
+def get_pedigree_share(
+    share_key: str,
+    db: Session = Depends(get_db),
+) -> ShareGetResponse:
+    row = get_shared_pedigree(db, share_key.strip())
+    if not row:
+        raise HTTPException(status_code=404, detail="invalid share key")
+    return ShareGetResponse(
+        key=row.share_key,
+        store=row.store_json if isinstance(row.store_json, dict) else {},
+        created_at=row.created_at,
+    )
+
+
+@app.post("/v1/share/uploads/photo")
+async def upload_share_photo(
+    file: UploadFile = File(...),
+    previous_url: str | None = None,
+) -> dict[str, str]:
+    """공개 공유용 사진 업로드 — 로그인 불필요. WebP(실패 시 JPEG)로 압축."""
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="only image file is allowed")
+
+    image_bytes = await file.read()
+    if not image_bytes:
+        raise HTTPException(status_code=400, detail="empty file")
+    if len(image_bytes) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="file too large (max 15MB)")
+
+    try:
+        _filename, url = save_compressed_photo(image_bytes, "share")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if previous_url and previous_url != url:
+        delete_local_upload(previous_url)
+
+    return {"url": url}
+
+
 @app.post("/v1/uploads/photo")
 async def upload_photo(
     google_sub: str,
     file: UploadFile = File(...),
+    previous_url: str | None = None,
     authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ) -> dict[str, str]:
+    """인물 사진 업로드. 640px WebP(q75, 실패 시 JPEG) 저장. previous_url 있으면 교체 삭제."""
     try:
         identity = get_identity_from_access_token(authorization)
     except ValueError:
@@ -242,16 +320,15 @@ async def upload_photo(
     image_bytes = await file.read()
     if not image_bytes:
         raise HTTPException(status_code=400, detail="empty file")
+    if len(image_bytes) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="file too large (max 15MB)")
 
     try:
-        image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=400, detail="invalid image format") from exc
+        _filename, url = save_compressed_photo(image_bytes, google_sub)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    # Resize and compress for bandwidth/storage efficiency.
-    image.thumbnail((1280, 1280))
-    filename = f"{google_sub}_{uuid.uuid4().hex}.jpg"
-    save_path = os.path.join(settings.upload_dir, filename)
-    image.save(save_path, format="JPEG", optimize=True, quality=80)
+    if previous_url and previous_url != url:
+        delete_local_upload(previous_url)
 
-    return {"url": f"{settings.public_base_url.rstrip('/')}/uploads/{filename}"}
+    return {"url": url}

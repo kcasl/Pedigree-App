@@ -40,9 +40,11 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
   - 권장 body: `{ "compressed": true, "payload_b64": "<gzip+base64>" }`
   - 압축 해제 원본 예시: `{ "upserts": { "id": {...} }, "deletes": ["id"] }`
 - `DELETE /v1/pedigree/{google_sub}`
-- `POST /v1/uploads/photo?google_sub=...` (multipart/form-data)
-  - image 파일 업로드 + 서버에서 JPG 압축 저장
-  - 응답: `{ "url": "http://.../uploads/....jpg" }`
+- `POST /v1/uploads/photo?google_sub=...&previous_url=...` (multipart/form-data)
+  - 긴 변 640px로 리사이즈 후 WebP(q75) 저장, 실패 시 JPEG(q75)
+  - `previous_url`이 있으면 교체 전 로컬 `/uploads/` 파일 삭제
+  - 원본 업로드 상한 15MB
+  - 응답: `{ "url": "http://.../uploads/....webp" }` (또는 `.jpg`)
 
 `/v1/pedigree/*` 는 `Authorization: Bearer <google_access_token>` 헤더가 필요합니다.
 

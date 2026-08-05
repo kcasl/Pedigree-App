@@ -6,7 +6,8 @@ from urllib import error, request
 from sqlalchemy.orm import Session
 
 from .config import settings
-from .models import PedigreeSnapshot, User
+from .images import delete_orphaned_uploads
+from .models import PedigreeSnapshot, SharedPedigree, User
 from .schemas import GoogleLoginRequest
 
 
@@ -86,9 +87,13 @@ def get_snapshot(db: Session, user_id: int) -> PedigreeSnapshot | None:
 def upsert_snapshot(db: Session, user_id: int, people_by_id: dict) -> PedigreeSnapshot:
     snapshot = get_snapshot(db, user_id)
     if snapshot:
+        old_people = (
+            deepcopy(snapshot.people_json) if isinstance(snapshot.people_json, dict) else {}
+        )
         snapshot.people_json = people_by_id
         db.commit()
         db.refresh(snapshot)
+        delete_orphaned_uploads(old_people, people_by_id)
         return snapshot
 
     snapshot = PedigreeSnapshot(user_id=user_id, people_json=people_by_id)
@@ -102,8 +107,10 @@ def delete_snapshot(db: Session, user_id: int) -> bool:
     snapshot = get_snapshot(db, user_id)
     if not snapshot:
         return False
+    old_people = deepcopy(snapshot.people_json) if isinstance(snapshot.people_json, dict) else {}
     db.delete(snapshot)
     db.commit()
+    delete_orphaned_uploads(old_people, {})
     return True
 
 
@@ -126,3 +133,23 @@ def apply_snapshot_patch(
         current[key] = value
 
     return upsert_snapshot(db, user_id, current)
+
+
+def get_shared_pedigree(db: Session, share_key: str) -> SharedPedigree | None:
+    return (
+        db.query(SharedPedigree)
+        .filter(SharedPedigree.share_key == share_key)
+        .first()
+    )
+
+
+def create_shared_pedigree(
+    db: Session,
+    share_key: str,
+    store_json: dict,
+) -> SharedPedigree:
+    row = SharedPedigree(share_key=share_key, store_json=store_json)
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
