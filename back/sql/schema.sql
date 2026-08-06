@@ -30,3 +30,14 @@ CREATE TABLE IF NOT EXISTS pedigree_snapshots (
     ON DELETE CASCADE
     ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS shared_pedigrees (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  share_key VARCHAR(32) NOT NULL,
+  device_id VARCHAR(64) NULL,
+  store_json JSON NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_shared_share_key (share_key),
+  KEY ix_shared_pedigrees_device_id (device_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

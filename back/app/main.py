@@ -58,12 +58,41 @@ os.makedirs(settings.upload_dir, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=settings.upload_dir), name="uploads")
 
 
-def ensure_shared_pedigree_device_id_column() -> None:
-    """기존 DB에 device_id 컬럼이 없으면 추가한다."""
+def ensure_shared_pedigree_schema() -> None:
+    """shared_pedigrees 테이블/device_id 컬럼이 없으면 추가한다."""
     from sqlalchemy import text
 
     with engine.begin() as conn:
-        rows = conn.execute(
+        table_exists = conn.execute(
+            text(
+                """
+                SELECT COUNT(*) AS cnt
+                FROM information_schema.TABLES
+                WHERE TABLE_SCHEMA = DATABASE()
+                  AND TABLE_NAME = 'shared_pedigrees'
+                """
+            )
+        ).scalar()
+        if not table_exists:
+            conn.execute(
+                text(
+                    """
+                    CREATE TABLE shared_pedigrees (
+                      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                      share_key VARCHAR(32) NOT NULL,
+                      device_id VARCHAR(64) NULL,
+                      store_json JSON NOT NULL,
+                      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                      PRIMARY KEY (id),
+                      UNIQUE KEY uk_shared_share_key (share_key),
+                      KEY ix_shared_pedigrees_device_id (device_id)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                    """
+                )
+            )
+            return
+
+        col_exists = conn.execute(
             text(
                 """
                 SELECT COUNT(*) AS cnt
@@ -74,27 +103,33 @@ def ensure_shared_pedigree_device_id_column() -> None:
                 """
             )
         ).scalar()
-        if rows:
+        if col_exists:
             return
         conn.execute(
             text(
                 """
                 ALTER TABLE shared_pedigrees
-                ADD COLUMN device_id VARCHAR(64) NULL,
-                ADD INDEX ix_shared_pedigrees_device_id (device_id)
+                ADD COLUMN device_id VARCHAR(64) NULL
                 """
             )
         )
+        try:
+            conn.execute(
+                text(
+                    """
+                    CREATE INDEX ix_shared_pedigrees_device_id
+                    ON shared_pedigrees (device_id)
+                    """
+                )
+            )
+        except Exception:  # noqa: BLE001
+            pass
 
 
 @app.on_event("startup")
 def on_startup() -> None:
     Base.metadata.create_all(bind=engine)
-    try:
-        ensure_shared_pedigree_device_id_column()
-    except Exception:  # noqa: BLE001
-        # 테이블이 아직 없거나 권한 문제면 create_all 이후 다음 기동에서 재시도
-        pass
+    ensure_shared_pedigree_schema()
 
 
 @app.get("/health")
@@ -280,8 +315,25 @@ def create_pedigree_share(
     if not isinstance(store, dict) or "views" not in store:
         raise HTTPException(status_code=400, detail="invalid store payload")
 
+    try:
+        ensure_shared_pedigree_schema()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"share schema error: {exc}") from exc
+
     key = generate_share_key(db)
-    create_shared_pedigree(db, key, store, device_id=payload.device_id)
+    try:
+        create_shared_pedigree(db, key, store, device_id=payload.device_id)
+    except Exception as exc:  # noqa: BLE001
+        # device_id 미적용 DB 등 — 스키마 보정 후 1회 재시도
+        db.rollback()
+        try:
+            ensure_shared_pedigree_schema()
+            create_shared_pedigree(db, key, store, device_id=payload.device_id)
+        except Exception as retry_exc:  # noqa: BLE001
+            raise HTTPException(
+                status_code=500,
+                detail=f"share create failed: {retry_exc}",
+            ) from retry_exc
     return ShareCreateResponse(key=key)
 
 
