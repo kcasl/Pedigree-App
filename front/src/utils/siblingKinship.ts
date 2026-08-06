@@ -52,12 +52,17 @@ function spouseLabelBySiblingRelation(
     if (siblingGender === 'male') return '제수';
     if (siblingGender === 'female') return '매제';
   }
+  if (rel === 'same' || rel === 'unknown') {
+    if (siblingGender === 'male') return '형수';
+    if (siblingGender === 'female') {
+      return selfGender === 'female' ? '형부' : '매부';
+    }
+  }
   return '인척';
 }
 
 export function siblingSpouseLabel(self: Person, siblingBlood: Person): string {
   const rel = compareAgeToSelf(self, siblingBlood);
-  if (rel === 'same' || rel === 'unknown') return '인척';
   return spouseLabelBySiblingRelation(rel, siblingBlood.gender, self.gender);
 }
 

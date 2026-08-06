@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import type { Person } from '../types/pedigree';
 import { ui } from '../theme/ui';
+import { useScaledModalStyles } from '../theme/responsive';
 import { formatKoreanDate } from '../utils/date';
 
 type Props = {
@@ -21,6 +22,8 @@ type Props = {
 };
 
 export function PersonDetailModal({ visible, person, onClose, onEdit, onDelete }: Props) {
+  const scaled = useScaledModalStyles();
+
   return (
     <Modal
       visible={visible}
@@ -28,48 +31,48 @@ export function PersonDetailModal({ visible, person, onClose, onEdit, onDelete }
       animationType="fade"
       onRequestClose={onClose}
     >
-      <Pressable style={styles.backdrop} onPress={onClose}>
-        <Pressable style={styles.card} onPress={() => {}}>
-          <View style={styles.header}>
-            <Text style={styles.title}>상세 정보</Text>
-            <Pressable onPress={onClose} style={styles.closeBtn}>
-              <Text style={styles.closeText}>닫기</Text>
+      <Pressable style={[styles.backdrop, scaled.backdropPad]} onPress={onClose}>
+        <Pressable style={[styles.card, scaled.card]} onPress={() => {}}>
+          <View style={[styles.header, scaled.header, scaled.headerCompact]}>
+            <Text style={[styles.title, scaled.title]}>상세 정보</Text>
+            <Pressable onPress={onClose} style={[styles.closeBtn, scaled.closeBtn]}>
+              <Text style={[styles.closeText, scaled.closeText]}>닫기</Text>
             </Pressable>
           </View>
 
-          <ScrollView contentContainerStyle={styles.body}>
-            <View style={styles.topRow}>
+          <ScrollView contentContainerStyle={[styles.body, scaled.body, scaled.bodyCompact]}>
+            <View style={[styles.topRow, scaled.topRow]}>
               {person?.photoUri ? (
-                <Image source={{ uri: person.photoUri }} style={styles.avatar} />
+                <Image source={{ uri: person.photoUri }} style={[styles.avatar, scaled.avatar]} />
               ) : (
-                <View style={styles.avatarFallback}>
-                  <Text style={styles.avatarFallbackText}>
+                <View style={[styles.avatarFallback, scaled.avatar]}>
+                  <Text style={[styles.avatarFallbackText, scaled.avatarFallbackText]}>
                     {person?.name?.slice(0, 1) ?? '?'}
                   </Text>
                 </View>
               )}
-              <View style={styles.topText}>
-                <Text style={styles.name}>{person?.name ?? ''}</Text>
+              <View style={[styles.topText, scaled.topText]}>
+                <Text style={[styles.name, scaled.name]}>{person?.name ?? ''}</Text>
               </View>
             </View>
 
-            <View style={styles.section}>
-              <Text style={styles.label}>등록일</Text>
-              <Text style={styles.value}>
+            <View style={[styles.section, scaled.section]}>
+              <Text style={[styles.label, scaled.label]}>등록일</Text>
+              <Text style={[styles.value, scaled.value]}>
                 {formatKoreanDate(person?.createdAt) || '-'}
               </Text>
             </View>
-            <View style={styles.section}>
-              <Text style={styles.label}>연락처</Text>
-              <Text style={styles.value}>{person?.phone ?? '-'}</Text>
+            <View style={[styles.section, scaled.section]}>
+              <Text style={[styles.label, scaled.label]}>연락처</Text>
+              <Text style={[styles.value, scaled.value]}>{person?.phone ?? '-'}</Text>
             </View>
-            <View style={styles.section}>
-              <Text style={styles.label}>생년월일</Text>
-              <Text style={styles.value}>{person?.birthDate ?? '-'}</Text>
+            <View style={[styles.section, scaled.section]}>
+              <Text style={[styles.label, scaled.label]}>생년월일</Text>
+              <Text style={[styles.value, scaled.value]}>{person?.birthDate ?? '-'}</Text>
             </View>
-            <View style={styles.section}>
-              <Text style={styles.label}>성별</Text>
-              <Text style={styles.value}>
+            <View style={[styles.section, scaled.section]}>
+              <Text style={[styles.label, scaled.label]}>성별</Text>
+              <Text style={[styles.value, scaled.value]}>
                 {person?.gender === 'male'
                   ? '남성'
                   : person?.gender === 'female'
@@ -77,19 +80,19 @@ export function PersonDetailModal({ visible, person, onClose, onEdit, onDelete }
                     : '-'}
               </Text>
             </View>
-            <View style={styles.section}>
-              <Text style={styles.label}>비고</Text>
-              <Text style={styles.value}>{person?.note ?? '-'}</Text>
+            <View style={[styles.section, scaled.section]}>
+              <Text style={[styles.label, scaled.label]}>비고</Text>
+              <Text style={[styles.value, scaled.value]}>{person?.note ?? '-'}</Text>
             </View>
           </ScrollView>
 
-          <View style={styles.footer}>
-            <Pressable style={styles.primaryBtn} onPress={onEdit}>
-              <Text style={styles.primaryText}>수정</Text>
+          <View style={[styles.footer, scaled.footer, scaled.footerRow]}>
+            <Pressable style={[styles.primaryBtn, scaled.primaryBtn]} onPress={onEdit}>
+              <Text style={[styles.primaryText, scaled.primaryText]}>수정</Text>
             </Pressable>
             {onDelete ? (
-              <Pressable style={styles.dangerBtn} onPress={onDelete}>
-                <Text style={styles.dangerText}>삭제</Text>
+              <Pressable style={[styles.dangerBtn, scaled.dangerBtn]} onPress={onDelete}>
+                <Text style={[styles.dangerText, scaled.dangerText]}>삭제</Text>
               </Pressable>
             ) : null}
           </View>
@@ -233,4 +236,3 @@ const styles = StyleSheet.create({
     fontWeight: ui.weight.heading,
   },
 });
-

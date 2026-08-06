@@ -1,0 +1,103 @@
+export function PersonNodeCard({
+  label,
+  ordinalLabel,
+  person,
+  onPress,
+  style,
+  width = BASE_CARD_WIDTH,
+  height = BASE_CARD_HEIGHT,
+  highlighted,
+  generation = 0,
+}: Props) {
+  const rowBg = ui.generationSurface(generation);
+  const avatarTheme = fallbackAvatarTheme(person?.gender);
+  const cardScale = width / BASE_CARD_WIDTH;
+  const rs = (size: number) => scaleSize(size, cardScale);
+  const scaled = useMemo(
+    () => ({
+      card: {
+        borderRadius: rs(14),
+        padding: rs(12),
+        minHeight: height,
+      },
+      header: { gap: rs(6) },
+      badge: {
+        fontSize: rs(12),
+        paddingHorizontal: rs(8),
+        paddingVertical: rs(4),
+      },
+      ordinalBadge: {
+        fontSize: rs(11),
+        paddingHorizontal: rs(6),
+        paddingVertical: rs(3),
+      },
+      content: { marginTop: rs(10), gap: rs(8) },
+      avatar: {
+        width: rs(78),
+        height: rs(78),
+        borderRadius: rs(39),
+      },
+      avatarFallback: {
+        width: rs(78),
+        height: rs(78),
+        borderRadius: rs(39),
+      },
+      personHead: {
+        width: rs(20),
+        height: rs(20),
+        borderRadius: rs(10),
+        marginBottom: rs(5),
+      },
+      personBody: {
+        width: rs(34),
+        height: rs(30),
+        borderTopLeftRadius: rs(18),
+        borderTopRightRadius: rs(18),
+        borderBottomLeftRadius: rs(10),
+        borderBottomRightRadius: rs(10),
+      },
+      avatarFallbackText: { fontSize: rs(24) },
+      name: { fontSize: rs(16) },
+      sub: { fontSize: rs(12) },
+    }),
+    [cardScale, height],
+  );
+
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.card,
+        scaled.card,
+        { backgroundColor: rowBg, width, maxWidth: width, minWidth: width },
+        highlighted && styles.highlighted,
+        pressed && styles.pressed,
+        !person && styles.placeholder,
+        style,
+      ]}
+    >
+      <View style={[styles.header, scaled.header]}>
+        <Text style={[styles.badge, scaled.badge]}>{label}</Text>
+        {ordinalLabel ? (
+          <Text style={[styles.ordinalBadge, scaled.ordinalBadge]}>{ordinalLabel}</Text>
+        ) : null}
+      </View>
+
+      <View style={[styles.content, scaled.content]}>
+        {person?.photoUri ? (
+          <Image source={{ uri: person.photoUri }} style={[styles.avatar, scaled.avatar]} />
+        ) : person ? (
+          <View
+            style={[
+              styles.avatarFallback,
+              scaled.avatarFallback,
+              { backgroundColor: avatarTheme.bg, borderColor: avatarTheme.border },
+            ]}
+          >
+            <View
+              style={[styles.personHead, scaled.personHead, { backgroundColor: avatarTheme.fg }]}
+            />
+            <View
+              style={[styles.personBody, scaled.personBody, { backgroundColor: avatarTheme.fg }]}
+            />
+  

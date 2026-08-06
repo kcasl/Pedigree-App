@@ -1,0 +1,6 @@
+{
+  "line": 1200,
+  "new_string": "            })}\n\n          </Animated.View>",
+  "old_string": "            })}\n\n            <EdgeLines\n              edges={displayLayout.edges}\n              nodeById={displayLayout.nodeById}\n              spousePairs={spousePairs}\n              uiScale={uiScale}\n              layer=\"foreground\"\n            />\n          </Animated.View>",
+  "path": "C:\\Project\\Pedigree_App\\front\\src\\screens\\PedigreeScreen.tsx"
+}

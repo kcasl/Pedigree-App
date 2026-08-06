@@ -199,24 +199,49 @@ export function sortChildIdsForLayout(
   });
 }
 
-function collectChildIds(
+/**
+ * 부부(또는 단독 부모)의 자녀인지 판별.
+ * 배우자가 있어도 한쪽 부모만 연결된 템플릿/레거시 자녀는 포함한다.
+ * 양쪽 부모가 모두 있으면 부부 일치만 인정한다.
+ */
+export function isChildOfCouple(
+  person: Person,
+  bloodId: PersonId,
+  spouseId?: PersonId,
+): boolean {
+  if (!person.fatherId && !person.motherId) return false;
+  if (!spouseId) {
+    return person.fatherId === bloodId || person.motherId === bloodId;
+  }
+  if (person.fatherId && person.motherId) {
+    return (
+      (person.fatherId === bloodId && person.motherId === spouseId) ||
+      (person.fatherId === spouseId && person.motherId === bloodId)
+    );
+  }
+  const sole = person.fatherId ?? person.motherId;
+  return sole === bloodId || sole === spouseId;
+}
+
+/** 부부(또는 단독 부모) 아래 자녀 id 목록 — 출생순 정렬은 호출측에서 */
+export function collectCoupleChildIds(
   people: Record<PersonId, Person>,
   bloodId: PersonId,
   spouseId?: PersonId,
 ): PersonId[] {
   const ids: PersonId[] = [];
   for (const p of Object.values(people)) {
-    if (!p.fatherId && !p.motherId) continue;
-    if (spouseId) {
-      const ok =
-        (p.fatherId === bloodId && p.motherId === spouseId) ||
-        (p.fatherId === spouseId && p.motherId === bloodId);
-      if (ok) ids.push(p.id);
-    } else if (p.fatherId === bloodId || p.motherId === bloodId) {
-      ids.push(p.id);
-    }
+    if (isChildOfCouple(p, bloodId, spouseId)) ids.push(p.id);
   }
   return ids;
+}
+
+function collectChildIds(
+  people: Record<PersonId, Person>,
+  bloodId: PersonId,
+  spouseId?: PersonId,
+): PersonId[] {
+  return collectCoupleChildIds(people, bloodId, spouseId);
 }
 
 export function buildChildOrdinalLabels(

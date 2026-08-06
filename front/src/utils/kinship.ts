@@ -149,8 +149,12 @@ function labelFromCode(code: string, self: Person, target: Person): string {
     if (target.gender === 'female') return '조카 며느리';
     return '조카 배우자';
   }
-  if (/^(F|M)[SDC]{3}$/.test(code)) return '조카 손자';
-  if (/^(F|M)[SDC]{4}$/.test(code)) return '조카 증손자';
+  if (/^(F|M)[SDC]{3}$/.test(code)) {
+    return target.gender === 'female' ? '조카손녀' : '조카손자';
+  }
+  if (/^(F|M)[SDC]{4}$/.test(code)) {
+    return target.gender === 'female' ? '조카증손녀' : '조카증손자';
+  }
 
   if (/^F(F|M)[SDC]$/.test(code)) {
     if (target.gender === 'female') return '고모';
@@ -228,7 +232,6 @@ const PRIORITY: Record<string, number> = {
   언니: 87,
   남동생: 86,
   여동생: 86,
-  조카: 85,
   사촌: 84,
   자녀: 83,
   자식: 83,
@@ -236,14 +239,27 @@ const PRIORITY: Record<string, number> = {
   손녀: 82,
   증손자: 81,
   증손녀: 81,
-  '조카 손자': 84,
-  '조카 증손자': 83,
+  조카: 84,
+  조카손자: 83,
+  조카손녀: 83,
+  조카증손자: 82,
+  조카증손녀: 82,
   '조카 사위': 82,
   '조카 며느리': 82,
   며느리: 81,
   사위: 81,
   사돈: 80,
   동서: 79,
+  형수: 88,
+  제수: 88,
+  매형: 88,
+  매부: 88,
+  형부: 88,
+  고모부: 87,
+  숙모: 87,
+  이모부: 87,
+  외숙모: 87,
+  외숙부: 87,
   인척: 10,
   친족: 1,
 };
@@ -263,13 +279,125 @@ function bestLabel(codes: string[], self: Person, target: Person): string {
   return selected;
 }
 
-function isSiblingBlood(self: Person, other: Person): boolean {
+export function isSiblingBlood(self: Person, other: Person): boolean {
   if (!self.fatherId || !self.motherId) return false;
   return (
     other.id !== self.id &&
     other.fatherId === self.fatherId &&
     other.motherId === self.motherId
   );
+}
+
+function isParentSiblingBlood(
+  self: Person,
+  other: Person,
+  people: Record<PersonId, Person>,
+): boolean {
+  const father = self.fatherId ? people[self.fatherId] : undefined;
+  if (!father?.fatherId || !father.motherId) return false;
+  return (
+    other.id !== father.id &&
+    other.fatherId === father.fatherId &&
+    other.motherId === father.motherId
+  );
+}
+
+function isMaternalParentSiblingBlood(
+  self: Person,
+  other: Person,
+  people: Record<PersonId, Person>,
+): boolean {
+  const mother = self.motherId ? people[self.motherId] : undefined;
+  if (!mother?.fatherId || !mother.motherId) return false;
+  return (
+    other.id !== mother.id &&
+    other.fatherId === mother.fatherId &&
+    other.motherId === mother.motherId
+  );
+}
+
+function parentSiblingSpouseLabel(blood: Person, spouse: Person): string {
+  if (blood.gender === 'female') {
+    if (spouse.gender === 'male') return '고모부';
+    if (spouse.gender === 'female') return '숙모';
+    return '고모부/숙모';
+  }
+  if (blood.gender === 'male') {
+    if (spouse.gender === 'female') return '숙모';
+    return '숙부';
+  }
+  return '숙부/고모부';
+}
+
+function maternalParentSiblingSpouseLabel(blood: Person, spouse: Person): string {
+  if (blood.gender === 'female') {
+    if (spouse.gender === 'male') return '이모부';
+    if (spouse.gender === 'female') return '외숙모';
+    return '이모부/외숙모';
+  }
+  if (blood.gender === 'male') {
+    if (spouse.gender === 'female') return '외숙모';
+    return '외숙부';
+  }
+  return '외삼촌/이모부';
+}
+
+function resolveInLawLabel(
+  self: Person,
+  target: Person,
+  people: Record<PersonId, Person>,
+): string | null {
+  const bloodId = target.spouseId;
+  if (!bloodId) return null;
+  const blood = people[bloodId];
+  if (!blood) return null;
+
+  if (isSiblingBlood(self, blood)) {
+    return siblingSpouseLabel(self, blood);
+  }
+  if (isParentSiblingBlood(self, blood, people)) {
+    return parentSiblingSpouseLabel(blood, target);
+  }
+  if (isMaternalParentSiblingBlood(self, blood, people)) {
+    return maternalParentSiblingSpouseLabel(blood, target);
+  }
+  return null;
+}
+
+export function childSpouseLabelFromParent(child: Person): string {
+  if (child.gender === 'male') return '며느리';
+  if (child.gender === 'female') return '사위';
+  return '사위/며느리';
+}
+
+export type ContactLineageGroup = 'paternal' | 'maternal' | 'spouse';
+
+function lineageGroupsFromCode(code: string): ContactLineageGroup[] {
+  if (!code) return [];
+  if (/^[HWP]/.test(code)) return ['spouse'];
+  if (/^(F|M)[SDC]$/.test(code)) return [];
+  if (/^[SDC]/.test(code)) return [];
+  if (code.startsWith('F')) return ['paternal'];
+  if (code.startsWith('M')) return ['maternal'];
+  return [];
+}
+
+/** 나 시점 기준 연락처 필터(친가·외가·배우자) 분류 */
+export function lineageGroupsForPerson(
+  peopleById: Record<PersonId, Person>,
+  selfId: PersonId,
+  targetId: PersonId,
+): ContactLineageGroup[] {
+  if (selfId === targetId) return [];
+  const adj = buildAdjacency(peopleById);
+  const codes = shortestCodes(adj, selfId, targetId);
+  const groups = new Set<ContactLineageGroup>();
+  for (const code of codes) {
+    for (const group of lineageGroupsFromCode(code)) {
+      groups.add(group);
+    }
+  }
+  return Array.from(groups);
 }
 
 export function buildKinshipLabels(
@@ -285,11 +413,9 @@ export function buildKinshipLabels(
     const codes = shortestCodes(adj, selfId, id);
     let label = bestLabel(codes, self, target);
 
-    const bloodRelative =
-      (target.spouseId && peopleById[target.spouseId]) ||
-      undefined;
-    if (bloodRelative && isSiblingBlood(self, bloodRelative)) {
-      label = siblingSpouseLabel(self, bloodRelative);
+    const inLawLabel = resolveInLawLabel(self, target, peopleById);
+    if (inLawLabel) {
+      label = inLawLabel;
     }
 
     out[id] = label;

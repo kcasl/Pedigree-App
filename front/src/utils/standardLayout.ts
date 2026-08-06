@@ -11,6 +11,7 @@ import {
   slotIdsForView,
 } from './standardTemplate';
 import {
+  collectCoupleChildIds,
   defaultSiblingBloodOrder,
   orderSiblingCouplesAroundFocal,
   sortChildIdsForLayout,
@@ -27,13 +28,50 @@ export type StandardLayoutOptions = {
   padding: number;
 };
 
+/** PersonNodeCard — 배지·아바타·이름(2줄)·나이·전화 기준 (레이아웃·카드 공통) */
+export const PERSON_NODE_METRICS = {
+  padding: 12,
+  headerHeight: 22,
+  contentMarginTop: 8,
+  avatarSize: 72,
+  contentGap: 6,
+  nameLineHeight: 19,
+  nameLines: 2,
+  ageLineHeight: 16,
+  phoneLineHeight: 14,
+  textGap: 2,
+} as const;
+
+/** 세로로 긴 카드 높이 (이름/나이/전화 3줄 포함) ≈ 204 */
+export function computeStandardCardHeight(): number {
+  const m = PERSON_NODE_METRICS;
+  const textBlock =
+    m.nameLineHeight * m.nameLines +
+    m.ageLineHeight +
+    m.phoneLineHeight +
+    m.textGap * 2;
+  return (
+    m.padding * 2 +
+    m.headerHeight +
+    m.contentMarginTop +
+    m.avatarSize +
+    m.contentGap +
+    textBlock
+  );
+}
+
+export const CARD_SHADOW_BLEED = 8;
+
+/** 예전 128 카드 + 256 rowGap 과 같은 세대 간 여유(연결선 공간) */
+const INTER_ROW_LINE_SPACE = 128;
+
 export const STANDARD_LAYOUT_DEFAULTS: StandardLayoutOptions = {
   view: 'self',
   cardWidth: 158,
-  cardHeight: 128,
+  cardHeight: computeStandardCardHeight(),
   spouseGap: 22,
   coupleGap: 56,
-  rowGap: 256,
+  rowGap: computeStandardCardHeight() + INTER_ROW_LINE_SPACE,
   childGap: 40,
   padding: 72,
 };
@@ -127,7 +165,16 @@ function sideBranchParentIds(
       addCouple(c.blood, c.spouse);
     }
   }
-  for (const slotId of [slots.gf, slots.gm, slots.mgf, slots.mgm, slots.ggf, slots.ggm] as PersonId[]) {
+  for (const slotId of [
+    slots.gf,
+    slots.gm,
+    slots.mgf,
+    slots.mgm,
+    slots.ggf,
+    slots.ggm,
+    slots.mggf,
+    slots.mggm,
+  ] as PersonId[]) {
     if (!people[slotId]) continue;
     for (const c of collectBloodSiblingCouples(people, slotId)) {
       addCouple(c.blood, c.spouse);
@@ -157,19 +204,7 @@ function collectChildren(
   bloodId: PersonId,
   spouseId?: PersonId,
 ): PersonId[] {
-  const ids: PersonId[] = [];
-  for (const p of Object.values(people)) {
-    if (!p.fatherId && !p.motherId) continue;
-    if (spouseId) {
-      const ok =
-        (p.fatherId === bloodId && p.motherId === spouseId) ||
-        (p.fatherId === spouseId && p.motherId === bloodId);
-      if (ok) ids.push(p.id);
-    } else if (p.fatherId === bloodId || p.motherId === bloodId) {
-      ids.push(p.id);
-    }
-  }
-  return sortChildIdsForLayout(ids, people);
+  return sortChildIdsForLayout(collectCoupleChildIds(people, bloodId, spouseId), people);
 }
 
 function personCenterInCouple(
@@ -1063,7 +1098,12 @@ export function buildStandardPedigreeLayout(
   const ancestorSideBranches: SideBranch[] = [];
   const placedSideDescendantIds = new Set<PersonId>();
 
-  const hasGreat = !!people[slots.ggf];
+  const hasGreat = !!(
+    people[slots.ggf] ||
+    people[slots.ggm] ||
+    people[slots.mggf] ||
+    people[slots.mggm]
+  );
   const ancestorRows = hasGreat ? 3 : 2;
   const ySibling = opts.padding + opts.rowGap * ancestorRows;
   const yParent = ySibling - opts.rowGap;
@@ -1229,14 +1269,48 @@ export function buildStandardPedigreeLayout(
       opts,
     );
   }
-  if (people[slots.ggf]) {
+  if (people[slots.ggf] || people[slots.ggm]) {
+    const greatBlood = people[slots.ggf] ? slots.ggf : slots.ggm;
+    const greatSpouse =
+      greatBlood === slots.ggf
+        ? people[slots.ggm]
+          ? slots.ggm
+          : undefined
+        : people[slots.ggf]
+          ? slots.ggf
+          : undefined;
     const greatCluster = placeGrandCoupleCluster(
       nodes,
       nodeById,
       people,
-      slots.ggf,
-      people[slots.ggm] ? slots.ggm : undefined,
+      greatBlood,
+      greatSpouse,
       paternalGrandX,
+      yGreat,
+      -3,
+      opts,
+      yGrand,
+      -2,
+    );
+    ancestorSideBranches.push(...greatCluster.sideBranches);
+  }
+  if (people[slots.mggf] || people[slots.mggm]) {
+    const greatBlood = people[slots.mggf] ? slots.mggf : slots.mggm;
+    const greatSpouse =
+      greatBlood === slots.mggf
+        ? people[slots.mggm]
+          ? slots.mggm
+          : undefined
+        : people[slots.mggf]
+          ? slots.mggf
+          : undefined;
+    const greatCluster = placeGrandCoupleCluster(
+      nodes,
+      nodeById,
+      people,
+      greatBlood,
+      greatSpouse,
+      maternalGrandX,
       yGreat,
       -3,
       opts,
@@ -1343,7 +1417,8 @@ export function buildStandardPedigreeLayout(
 
   let canvasBottomY = yChild;
 
-  if (opts.view === 'self') {
+  // 자녀 줄 아래 자손(손자·증손…) — 나/친가/외가/배우자 모두 동일 규칙
+  {
     let parentUnits = childUnits;
     let parentRowY = yChild;
     let nextGeneration = 2;

@@ -20,6 +20,7 @@ import {
   isoToDateInput,
   nowIso,
   nowIsoFromNetwork,
+  normalizeBirthDateInput,
   parseDateInputToIso,
 } from '../utils/date';
 import { createId } from '../utils/id';
@@ -27,6 +28,7 @@ import { ensureCameraPermission, ensurePhotoPermission } from '../utils/permissi
 import { API_BASE_URL } from '../config/api';
 import { ENABLE_SERVER_SYNC } from '../config/features';
 import { ui } from '../theme/ui';
+import { useScaledModalStyles } from '../theme/responsive';
 
 type Props = {
   visible: boolean;
@@ -39,6 +41,8 @@ type Props = {
    * - id는 유지, createdAt(등록일)은 폼에서 수정 가능
    */
   initialPerson?: Person;
+  /** info: 연락처·비고 등 / photo: 사진만 / all: 전체 */
+  section?: 'info' | 'photo' | 'all';
 };
 
 const imagePickerCommon: ImageLibraryOptions = {
@@ -61,7 +65,9 @@ export function AddPersonModal({
   onSubmit,
   initialPerson,
   auth,
+  section = 'all',
 }: Props) {
+  const scaled = useScaledModalStyles();
   const [name, setName] = useState(initialPerson?.name ?? '');
   const [phone, setPhone] = useState(initialPerson?.phone ?? '');
   const [birthDate, setBirthDate] = useState(initialPerson?.birthDate ?? '');
@@ -182,14 +188,22 @@ export function AddPersonModal({
   ): Promise<string | null> => {
     try {
       const form = new FormData();
-      form.append('google_sub', googleSub);
       form.append('file', {
         uri,
         name: `photo_${Date.now()}.jpg`,
         type: 'image/jpeg',
       } as unknown as Blob);
 
-      const res = await fetch(`${API_BASE_URL}/v1/uploads/photo`, {
+      const params = new URLSearchParams({ google_sub: googleSub });
+      const previous =
+        photoUri &&
+        (photoUri.startsWith('http://') || photoUri.startsWith('https://')) &&
+        photoUri.includes('/uploads/')
+          ? photoUri
+          : undefined;
+      if (previous) params.set('previous_url', previous);
+
+      const res = await fetch(`${API_BASE_URL}/v1/uploads/photo?${params.toString()}`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -216,12 +230,26 @@ export function AddPersonModal({
       return;
     }
 
+    const birthDateTrimmed = birthDate.trim();
+    let normalizedBirthDate: string | undefined;
+    if (birthDateTrimmed) {
+      const parsed = normalizeBirthDateInput(birthDateTrimmed);
+      if (!parsed) {
+        Alert.alert(
+          '입력 오류',
+          '생년월일은 YYYY-MM-DD 또는 YYYYMMDD 형식으로 입력해 주세요.\n예: 2007-06-01, 20070601',
+        );
+        return;
+      }
+      normalizedBirthDate = parsed;
+    }
+
     const person: Person = initialPerson
       ? {
           ...initialPerson,
           name: name.trim(),
           phone: phone.trim() || undefined,
-          birthDate: birthDate.trim() || undefined,
+          birthDate: normalizedBirthDate,
           createdAt,
           photoUri,
           note: note.trim() || undefined,
@@ -231,7 +259,7 @@ export function AddPersonModal({
           id: createId('person'),
           name: name.trim(),
           phone: phone.trim() || undefined,
-          birthDate: birthDate.trim() || undefined,
+          birthDate: normalizedBirthDate,
           createdAt,
           photoUri,
           note: note.trim() || undefined,
@@ -247,6 +275,9 @@ export function AddPersonModal({
     onClose();
   };
 
+  const showInfoFields = section !== 'photo';
+  const showPhotoFields = section !== 'info';
+
   return (
     <Modal
       visible={visible}
@@ -255,42 +286,46 @@ export function AddPersonModal({
       onRequestClose={close}
     >
       <View style={styles.backdrop}>
-        <View style={styles.sheet}>
-          <View style={styles.header}>
-            <Text style={styles.title}>{title}</Text>
-            <Pressable onPress={close} style={styles.closeBtn}>
-              <Text style={styles.closeText}>닫기</Text>
+        <View style={[styles.sheet, scaled.sheet]}>
+          <View style={[styles.header, scaled.header]}>
+            <Text style={[styles.title, scaled.title]}>{title}</Text>
+            <Pressable onPress={close} style={[styles.closeBtn, scaled.closeBtn]}>
+              <Text style={[styles.closeText, scaled.closeText]}>닫기</Text>
             </Pressable>
           </View>
 
           <ScrollView
-            contentContainerStyle={styles.body}
+            contentContainerStyle={[styles.body, scaled.body]}
             keyboardShouldPersistTaps="handled"
           >
-            <View style={styles.field}>
-              <Text style={styles.label}>이름 *</Text>
+            {showInfoFields ? (
+              <>
+            <View style={[styles.field, scaled.field]}>
+              <Text style={[styles.label, scaled.label]}>이름 *</Text>
               <TextInput
                 value={name}
                 onChangeText={setName}
                 placeholder="예: 홍길동"
                 placeholderTextColor="#64748b"
-                style={styles.input}
+                style={[styles.input, scaled.input]}
               />
             </View>
 
-            <View style={styles.field}>
-              <Text style={styles.label}>성별</Text>
-              <View style={styles.genderRow}>
+            <View style={[styles.field, scaled.field]}>
+              <Text style={[styles.label, scaled.label]}>성별</Text>
+              <View style={[styles.genderRow, scaled.genderRow]}>
                 <Pressable
                   onPress={() => setGender('male')}
                   style={[
                     styles.genderBtn,
+                    scaled.genderBtn,
                     gender === 'male' && styles.genderBtnActive,
                   ]}
                 >
                   <Text
                     style={[
                       styles.genderBtnText,
+                      scaled.genderBtnText,
                       gender === 'male' && styles.genderBtnTextActive,
                     ]}
                   >
@@ -301,12 +336,14 @@ export function AddPersonModal({
                   onPress={() => setGender('female')}
                   style={[
                     styles.genderBtn,
+                    scaled.genderBtn,
                     gender === 'female' && styles.genderBtnActive,
                   ]}
                 >
                   <Text
                     style={[
                       styles.genderBtnText,
+                      scaled.genderBtnText,
                       gender === 'female' && styles.genderBtnTextActive,
                     ]}
                   >
@@ -317,12 +354,14 @@ export function AddPersonModal({
                   onPress={() => setGender('unknown')}
                   style={[
                     styles.genderBtn,
+                    scaled.genderBtn,
                     gender === 'unknown' && styles.genderBtnActive,
                   ]}
                 >
                   <Text
                     style={[
                       styles.genderBtnText,
+                      scaled.genderBtnText,
                       gender === 'unknown' && styles.genderBtnTextActive,
                     ]}
                   >
@@ -332,51 +371,56 @@ export function AddPersonModal({
               </View>
             </View>
 
-            <View style={styles.field}>
-              <Text style={styles.label}>연락처</Text>
+            <View style={[styles.field, scaled.field]}>
+              <Text style={[styles.label, scaled.label]}>연락처</Text>
               <TextInput
                 value={phone}
                 onChangeText={setPhone}
                 placeholder="예: 010-1234-5678"
                 placeholderTextColor="#64748b"
                 keyboardType="phone-pad"
-                style={styles.input}
+                style={[styles.input, scaled.input]}
               />
             </View>
 
-            <View style={styles.field}>
-              <Text style={styles.label}>생년월일</Text>
+            <View style={[styles.field, scaled.field]}>
+              <Text style={[styles.label, scaled.label]}>생년월일</Text>
               <TextInput
                 value={birthDate}
                 onChangeText={setBirthDate}
-                placeholder="YYYY-MM-DD"
+                placeholder="예: 2007-06-01 또는 20070601"
                 placeholderTextColor="#64748b"
-                style={styles.input}
+                autoCapitalize="none"
+                autoCorrect={false}
+                style={[styles.input, scaled.input, styles.birthDateInput]}
               />
+              <Text style={[styles.fieldHint, scaled.fieldHint]}>
+                YYYY-MM-DD, YYYYMMDD 형식 모두 입력 가능합니다.
+              </Text>
             </View>
 
-            <View style={styles.field}>
-              <Text style={styles.label}>등록일</Text>
+            <View style={[styles.field, scaled.field]}>
+              <Text style={[styles.label, scaled.label]}>등록일</Text>
               <TextInput
                 value={registeredDate}
                 onChangeText={setRegisteredDate}
                 placeholder="YYYY-MM-DD"
                 placeholderTextColor="#64748b"
-                style={styles.input}
+                style={[styles.input, scaled.input]}
               />
               {!initialPerson ? (
-                <Text style={styles.fieldHint}>
+                <Text style={[styles.fieldHint, scaled.fieldHint]}>
                   와이파이 연결 시 네트워크 시간으로 자동 입력됩니다.
                 </Text>
               ) : (
-                <Text style={styles.fieldHint}>등록일을 직접 수정할 수 있습니다.</Text>
+                <Text style={[styles.fieldHint, scaled.fieldHint]}>등록일을 직접 수정할 수 있습니다.</Text>
               )}
             </View>
 
-            <View style={styles.field}>
+            <View style={[styles.field, scaled.field]}>
               <View style={styles.noteHeader}>
-                <Text style={styles.label}>비고(기타 정보)</Text>
-                <Text style={styles.noteCount}>{note.length}/100</Text>
+                <Text style={[styles.label, scaled.label]}>비고(기타 정보)</Text>
+                <Text style={[styles.noteCount, scaled.noteCount]}>{note.length}/100</Text>
               </View>
               <TextInput
                 value={note}
@@ -385,42 +429,49 @@ export function AddPersonModal({
                 placeholderTextColor="#64748b"
                 maxLength={100}
                 multiline
-                style={[styles.input, styles.noteInput]}
+                style={[styles.input, scaled.input, styles.noteInput, scaled.noteInput]}
               />
             </View>
+              </>
+            ) : null}
 
-            <View style={styles.photoRow}>
-              <Pressable onPress={takePhoto} style={styles.photoBtn}>
-                <Text style={styles.photoBtnText}>카메라</Text>
+            {showPhotoFields ? (
+            <View style={[styles.field, scaled.field]}>
+            <View style={[styles.photoRow, scaled.photoRow]}>
+              <Pressable onPress={takePhoto} style={[styles.photoBtn, scaled.photoBtn]}>
+                <Text style={[styles.photoBtnText, scaled.photoBtnText]}>카메라</Text>
               </Pressable>
-              <Pressable onPress={pickFromGallery} style={styles.photoBtn}>
-                <Text style={styles.photoBtnText}>갤러리</Text>
+              <Pressable onPress={pickFromGallery} style={[styles.photoBtn, scaled.photoBtn]}>
+                <Text style={[styles.photoBtnText, scaled.photoBtnText]}>갤러리</Text>
               </Pressable>
               <Pressable
                 onPress={() => setPhotoUri(undefined)}
-                style={[styles.photoBtn, styles.photoBtnDanger]}
+                style={[styles.photoBtn, scaled.photoBtn, styles.photoBtnDanger]}
               >
-                <Text style={[styles.photoBtnText, styles.photoBtnDangerText]}>제거</Text>
+                <Text style={[styles.photoBtnText, scaled.photoBtnText, styles.photoBtnDangerText]}>제거</Text>
               </Pressable>
-              <View style={styles.photoInfo}>
-                <Text style={styles.photoInfoText} numberOfLines={1}>
+              <View style={[styles.photoInfo, scaled.photoInfo]}>
+                <Text style={[styles.photoInfoText, scaled.photoInfoText]} numberOfLines={1}>
                   {photoUri ? '사진 선택됨' : '사진 없음'}
                 </Text>
               </View>
             </View>
+            </View>
+            ) : null}
           </ScrollView>
 
-          <View style={styles.footer}>
+          <View style={[styles.footer, scaled.footer]}>
             <Pressable
               onPress={submit}
               disabled={!canSave}
               style={({ pressed }) => [
                 styles.saveBtn,
+                scaled.saveBtn,
                 !canSave && styles.saveBtnDisabled,
                 pressed && canSave && styles.saveBtnPressed,
               ]}
             >
-              <Text style={styles.saveText}>저장</Text>
+              <Text style={[styles.saveText, scaled.saveText]}>저장</Text>
             </Pressable>
           </View>
         </View>
@@ -498,6 +549,12 @@ const styles = StyleSheet.create({
     paddingVertical: 11,
     fontSize: 14,
     fontWeight: ui.weight.body,
+  },
+  birthDateInput: {
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    fontSize: 15,
+    letterSpacing: 0.3,
   },
   noteHeader: {
     flexDirection: 'row',

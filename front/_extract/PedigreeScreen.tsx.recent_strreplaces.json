@@ -1,0 +1,74 @@
+[
+  {
+    "line": 1132,
+    "new_string": "  const { rs, layoutBase, height: windowHeight, scale } = useResponsive();",
+    "old_string": "  const { rs, layoutBase, height: windowHeight } = useResponsive();",
+    "path": "C:\\Project\\Pedigree_App\\front\\src\\screens\\PedigreeScreen.tsx"
+  },
+  {
+    "line": 1132,
+    "new_string": "            <EdgeLines\n              edges={displayLayout.edges}\n              nodeById={displayLayout.nodeById}\n              spousePairs={spousePairs}\n              lineScale={scale}\n            />",
+    "old_string": "            <EdgeLines\n              edges={displayLayout.edges}\n              nodeById={displayLayout.nodeById}\n              spousePairs={spousePairs}\n            />",
+    "path": "C:\\Project\\Pedigree_App\\front\\src\\screens\\PedigreeScreen.tsx"
+  },
+  {
+    "line": 1134,
+    "new_string": "  const { rs, layoutBase, height: windowHeight, scale: uiScale } = useResponsive();",
+    "old_string": "  const { rs, layoutBase, height: windowHeight, scale } = useResponsive();",
+    "path": "C:\\Project\\Pedigree_App\\front\\src\\screens\\PedigreeScreen.tsx"
+  },
+  {
+    "line": 1134,
+    "new_string": "              lineScale={uiScale}",
+    "old_string": "              lineScale={scale}",
+    "path": "C:\\Project\\Pedigree_App\\front\\src\\screens\\PedigreeScreen.tsx"
+  },
+  {
+    "line": 1142,
+    "new_string": "                <View\n                  key={n.id}\n                  style={[styles.node, { left: n.x, top: n.y, width: n.width, height: n.height }]}\n                >",
+    "old_string": "                <View key={n.id} style={[styles.node, { left: n.x, top: n.y }]}>",
+    "path": "C:\\Project\\Pedigree_App\\front\\src\\screens\\PedigreeScreen.tsx"
+  },
+  {
+    "line": 1152,
+    "new_string": "  const { rs, layoutBase, height: windowHeight, uiScale, fontScale } = useResponsive();",
+    "old_string": "  const { rs, layoutBase, height: windowHeight, scale: uiScale } = useResponsive();",
+    "path": "C:\\Project\\Pedigree_App\\front\\src\\screens\\PedigreeScreen.tsx"
+  },
+  {
+    "line": 1152,
+    "new_string": "            <EdgeLines\n              edges={displayLayout.edges}\n              nodeById={displayLayout.nodeById}\n              spousePairs={spousePairs}\n              uiScale={uiScale}\n              fontScale={fontScale}\n            />",
+    "old_string": "            <EdgeLines\n              edges={displayLayout.edges}\n              nodeById={displayLayout.nodeById}\n              spousePairs={spousePairs}\n              lineScale={uiScale}\n            />",
+    "path": "C:\\Project\\Pedigree_App\\front\\src\\screens\\PedigreeScreen.tsx"
+  },
+  {
+    "line": 1159,
+    "new_string": "            {displayLayout.nodes.map(n => {\n              const p = peopleById[n.id];\n              if (!p) return null;\n              return (\n                <View\n                  key={n.id}\n                  style={[styles.node, { left: n.x, top: n.y, width: n.width, height: n.height }]}\n                >\n                  <DraggablePersonNode\n                    person={p}\n                    label={kinshipLabelById[p.id] ?? p.name}\n                    ordinalLabel={ordinalLabelById[p.id]}\n                    width={n.width}\n                    height={n.height}\n                    highlighted={layout.highlightIds.has(n.id)}\n                    generation={n.generation}\n                    referenceDate={today}\n                    activeView={activeView}\n                    onPress={() => openActionsFor(n.id)}\n                  />\n                </View>\n              );\n            })}\n\n            <EdgeLines\n              edges={displayLayout.edges}\n              nodeById={displayLayout.nodeById}\n              spousePairs={spousePairs}\n              uiScale={uiScale}\n              fontScale={fontScale}\n            />",
+    "old_string": "            <EdgeLines\n              edges={displayLayout.edges}\n              nodeById={displayLayout.nodeById}\n              spousePairs={spousePairs}\n              uiScale={uiScale}\n              fontScale={fontScale}\n            />\n\n            {displayLayout.nodes.map(n => {\n              const p = peopleById[n.id];\n              if (!p) return null;\n              return (\n                <View\n                  key={n.id}\n                  style={[styles.node, { left: n.x, top: n.y, width: n.width, height: n.height }]}\n                >\n                  <DraggablePersonNode\n                    person={p}\n                    label={kinshipLabelById[p.id] ?? p.name}\n                    ordinalLabel={ordinalLabelById[p.id]}\n                    width={n.width}\n                    height={n.height}\n                    highlighted={layout.highlightIds.has(n.id)}\n                    generation={n.generation}\n                    referenceDate={today}\n                    activeView={activeView}\n                    onPress={() => openActionsFor(n.id)}\n                  />\n                </View>\n              );\n            })}",
+    "path": "C:\\Project\\Pedigree_App\\front\\src\\screens\\PedigreeScreen.tsx"
+  },
+  {
+    "line": 1165,
+    "new_string": "            <EdgeLines\n              edges={displayLayout.edges}\n              nodeById={displayLayout.nodeById}\n              spousePairs={spousePairs}\n              uiScale={uiScale}\n              layer=\"background\"\n            />\n\n            {displayLayout.nodes.map(n => {\n              const p = peopleById[n.id];\n              if (!p) return null;\n              return (\n                <View\n                  key={n.id}\n                  style={[styles.node, { left: n.x, top: n.y, width: n.width, height: n.height }]}\n                >\n                  <DraggablePersonNode\n                    person={p}\n                    label={kinshipLabelById[p.id] ?? p.name}\n                    ordinalLabel={ordinalLabelById[p.id]}\n                    width={n.width}\n                    height={n.height}\n                    highlighted={layout.highlightIds.has(n.id)}\n                    generation={n.generation}\n                    referenceDate={today}\n                    activeView={activeView}\n                    onPress={() => openActionsFor(n.id)}\n                  />\n                </View>\n              );\n            })}\n\n            <EdgeLines\n              edges={displayLayout.edges}\n              nodeById={displayLayout.nodeById}\n              spousePairs={spousePairs}\n              uiScale={uiScale}\n              layer=\"foreground\"\n            />",
+    "old_string": "            {displayLayout.nodes.map(n => {\n              const p = peopleById[n.id];\n              if (!p) return null;\n              return (\n                <View\n                  key={n.id}\n                  style={[styles.node, { left: n.x, top: n.y, width: n.width, height: n.height }]}\n                >\n                  <DraggablePersonNode\n                    person={p}\n                    label={kinshipLabelById[p.id] ?? p.name}\n                    ordinalLabel={ordinalLabelById[p.id]}\n                    width={n.width}\n                    height={n.height}\n                    highlighted={layout.highlightIds.has(n.id)}\n                    generation={n.generation}\n                    referenceDate={today}\n                    activeView={activeView}\n                    onPress={() => openActionsFor(n.id)}\n                  />\n                </View>\n              );\n            })}\n\n            <EdgeLines\n              edges={displayLayout.edges}\n              nodeById={displayLayout.nodeById}\n              spousePairs={spousePairs}\n              uiScale={uiScale}\n              fontScale={fontScale}\n            />",
+    "path": "C:\\Project\\Pedigree_App\\front\\src\\screens\\PedigreeScreen.tsx"
+  },
+  {
+    "line": 1167,
+    "new_string": "  const { rs, layoutBase, height: windowHeight, uiScale } = useResponsive();",
+    "old_string": "  const { rs, layoutBase, height: windowHeight, uiScale, fontScale } = useResponsive();",
+    "path": "C:\\Project\\Pedigree_App\\front\\src\\screens\\PedigreeScreen.tsx"
+  },
+  {
+    "line": 1199,
+    "new_string": "            <EdgeLines\n              edges={displayLayout.edges}\n              nodeById={displayLayout.nodeById}\n              spousePairs={spousePairs}\n              uiScale={uiScale}\n            />\n\n            {displayLayout.nodes.map(n => {",
+    "old_string": "            <EdgeLines\n              edges={displayLayout.edges}\n              nodeById={displayLayout.nodeById}\n              spousePairs={spousePairs}\n              uiScale={uiScale}\n              layer=\"background\"\n            />\n\n            {displayLayout.nodes.map(n => {",
+    "path": "C:\\Project\\Pedigree_App\\front\\src\\screens\\PedigreeScreen.tsx"
+  },
+  {
+    "line": 1200,
+    "new_string": "            })}\n\n          </Animated.View>",
+    "old_string": "            })}\n\n            <EdgeLines\n              edges={displayLayout.edges}\n              nodeById={displayLayout.nodeById}\n              spousePairs={spousePairs}\n              uiScale={uiScale}\n              layer=\"foreground\"\n            />\n          </Animated.View>",
+    "path": "C:\\Project\\Pedigree_App\\front\\src\\screens\\PedigreeScreen.tsx"
+  }
+]

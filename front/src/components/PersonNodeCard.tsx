@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   Image,
   Pressable,
@@ -7,8 +7,17 @@ import {
   View,
   ViewStyle,
 } from 'react-native';
+import type { ActiveView } from '../types/lineage';
 import type { Person } from '../types/pedigree';
 import { ui } from '../theme/ui';
+import { scaleSize } from '../theme/responsive';
+import { PERSON_NODE_METRICS, STANDARD_LAYOUT_DEFAULTS } from '../utils/standardLayout';
+import { internationalAge } from '../utils/date';
+import { isGreatGrandparentNode, resolveNodeDisplayName } from '../utils/standardTemplate';
+
+const NODE_TEXT = { allowFontScaling: false, maxFontSizeMultiplier: 1 } as const;
+const BASE_CARD_WIDTH = STANDARD_LAYOUT_DEFAULTS.cardWidth;
+const BASE_CARD_HEIGHT = STANDARD_LAYOUT_DEFAULTS.cardHeight;
 
 type Props = {
   label: string;
@@ -16,8 +25,12 @@ type Props = {
   person?: Person;
   onPress: () => void;
   style?: ViewStyle;
+  width?: number;
+  height?: number;
   highlighted?: boolean;
   generation?: number;
+  referenceDate?: Date;
+  activeView?: ActiveView;
 };
 
 type FallbackAvatarTheme = {
@@ -66,60 +79,169 @@ export function PersonNodeCard({
   person,
   onPress,
   style,
+  width = BASE_CARD_WIDTH,
+  height = BASE_CARD_HEIGHT,
   highlighted,
   generation = 0,
+  referenceDate,
+  activeView,
 }: Props) {
-  const rowBg = ui.generationSurface(generation);
+  const today = referenceDate ?? new Date();
+  const personName = person
+    ? resolveNodeDisplayName(activeView, person.id, person.name)
+    : '추가';
+  const personAge = person ? internationalAge(person.birthDate, today) : null;
+
+  const rowBg = useMemo(() => {
+    if (person && isGreatGrandparentNode(person, activeView)) return ui.greatAncestorSurface;
+    return ui.generationSurface(generation);
+  }, [person, generation, activeView]);
+
   const avatarTheme = fallbackAvatarTheme(person?.gender);
+  const cardScale = width / BASE_CARD_WIDTH;
+  const rs = (size: number) => scaleSize(size, cardScale);
+  const m = PERSON_NODE_METRICS;
+  const scaled = useMemo(
+    () => ({
+      card: {
+        borderRadius: rs(14),
+        padding: rs(m.padding),
+        height,
+        minHeight: height,
+        maxHeight: height,
+      },
+      header: { gap: rs(6), minHeight: rs(m.headerHeight) },
+      badge: {
+        fontSize: rs(12),
+        paddingHorizontal: rs(8),
+        paddingVertical: rs(4),
+      },
+      ordinalBadge: {
+        fontSize: rs(11),
+        paddingHorizontal: rs(6),
+        paddingVertical: rs(3),
+      },
+      content: {
+        width: '100%' as const,
+        marginTop: rs(m.contentMarginTop),
+        gap: rs(m.contentGap),
+        alignItems: 'center' as const,
+      },
+      textBlock: {
+        width: '100%' as const,
+        alignSelf: 'stretch' as const,
+        gap: rs(m.textGap),
+      },
+      avatar: {
+        width: rs(m.avatarSize),
+        height: rs(m.avatarSize),
+        borderRadius: rs(m.avatarSize / 2),
+      },
+      avatarFallback: {
+        width: rs(m.avatarSize),
+        height: rs(m.avatarSize),
+        borderRadius: rs(m.avatarSize / 2),
+      },
+      personHead: {
+        width: rs(20),
+        height: rs(20),
+        borderRadius: rs(10),
+        marginBottom: rs(5),
+      },
+      personBody: {
+        width: rs(34),
+        height: rs(30),
+        borderTopLeftRadius: rs(18),
+        borderTopRightRadius: rs(18),
+        borderBottomLeftRadius: rs(10),
+        borderBottomRightRadius: rs(10),
+      },
+      avatarFallbackText: { fontSize: rs(24) },
+      name: {
+        fontSize: rs(16),
+        lineHeight: rs(m.nameLineHeight),
+        minHeight: rs(m.nameLineHeight * m.nameLines),
+      },
+      age: {
+        fontSize: rs(12),
+        lineHeight: rs(m.ageLineHeight),
+        minHeight: rs(m.ageLineHeight),
+      },
+      sub: { fontSize: rs(12), lineHeight: rs(m.phoneLineHeight) },
+    }),
+    [cardScale, height],
+  );
 
   return (
     <Pressable
       onPress={onPress}
       style={({ pressed }) => [
         styles.card,
-        { backgroundColor: rowBg },
+        scaled.card,
+        {
+          backgroundColor: rowBg,
+          width,
+          maxWidth: width,
+          minWidth: width,
+        },
         highlighted && styles.highlighted,
         pressed && styles.pressed,
         !person && styles.placeholder,
         style,
       ]}
     >
-      <View style={styles.header}>
-        <Text style={styles.badge}>{label}</Text>
-        {ordinalLabel ? <Text style={styles.ordinalBadge}>{ordinalLabel}</Text> : null}
+      <View style={[styles.header, scaled.header]}>
+        <Text {...NODE_TEXT} style={[styles.badge, scaled.badge]}>
+          {label}
+        </Text>
+        {ordinalLabel ? (
+          <Text {...NODE_TEXT} style={[styles.ordinalBadge, scaled.ordinalBadge]}>
+            {ordinalLabel}
+          </Text>
+        ) : null}
       </View>
 
-      <View style={styles.content}>
+      <View style={[styles.content, scaled.content]}>
         {person?.photoUri ? (
-          <Image source={{ uri: person.photoUri }} style={styles.avatar} />
+          <Image source={{ uri: person.photoUri }} style={[styles.avatar, scaled.avatar]} />
         ) : person ? (
           <View
             style={[
               styles.avatarFallback,
+              scaled.avatarFallback,
               { backgroundColor: avatarTheme.bg, borderColor: avatarTheme.border },
             ]}
           >
-            <View style={[styles.personHead, { backgroundColor: avatarTheme.fg }]} />
-            <View style={[styles.personBody, { backgroundColor: avatarTheme.fg }]} />
+            <View
+              style={[styles.personHead, scaled.personHead, { backgroundColor: avatarTheme.fg }]}
+            />
+            <View
+              style={[styles.personBody, scaled.personBody, { backgroundColor: avatarTheme.fg }]}
+            />
           </View>
         ) : (
-          <View style={styles.avatarFallback}>
-            <Text style={styles.avatarFallbackText}>+</Text>
+          <View style={[styles.avatarFallback, scaled.avatarFallback]}>
+            <Text style={[styles.avatarFallbackText, scaled.avatarFallbackText]}>+</Text>
           </View>
         )}
 
-        <Text style={styles.name} numberOfLines={1}>
-          {person ? person.name : '추가'}
-        </Text>
-        {person?.phone ? (
-          <Text style={styles.sub} numberOfLines={1}>
-            {formatPhoneForNode(person.phone)}
+        <View style={[styles.textBlock, scaled.textBlock]}>
+          <Text {...NODE_TEXT} style={[styles.name, scaled.name]} numberOfLines={2}>
+            {personName}
           </Text>
-        ) : (
-          <Text style={styles.sub} numberOfLines={1}>
-            {person ? ' ' : '탭해서 등록'}
+          {person && personAge != null ? (
+            <Text {...NODE_TEXT} style={[styles.age, scaled.age]}>
+              ({personAge})
+            </Text>
+          ) : person ? (
+            <Text {...NODE_TEXT} style={[styles.age, scaled.age, styles.agePlaceholder]}>
+              {' '}
+            </Text>
+          ) : null}
+          <Text {...NODE_TEXT} style={[styles.sub, scaled.sub]} numberOfLines={1}>
+            {person?.phone ? formatPhoneForNode(person.phone) : person ? ' ' : '탭해서 등록'}
           </Text>
-        )}
+        </View>
       </View>
     </Pressable>
   );
@@ -131,7 +253,6 @@ const styles = StyleSheet.create({
     backgroundColor: ui.color.surface,
     borderWidth: 1.5,
     borderColor: ui.color.border,
-    padding: 12,
     ...ui.shadow.card,
   },
   pressed: {
@@ -178,22 +299,29 @@ const styles = StyleSheet.create({
     fontWeight: ui.weight.title,
   },
   content: {
-    marginTop: 10,
+    width: '100%',
+    marginTop: 8,
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
+  },
+  textBlock: {
+    width: '100%',
+    alignSelf: 'stretch',
+    alignItems: 'center',
+    gap: 2,
   },
   avatar: {
-    width: 78,
-    height: 78,
-    borderRadius: 39,
+    width: 72,
+    height: 72,
+    borderRadius: 36,
     backgroundColor: ui.color.badgeBg,
     borderWidth: 1,
     borderColor: ui.color.borderLight,
   },
   avatarFallback: {
-    width: 78,
-    height: 78,
-    borderRadius: 39,
+    width: 72,
+    height: 72,
+    borderRadius: 36,
     backgroundColor: ui.color.badgeBg,
     borderWidth: 1,
     borderColor: ui.color.border,
@@ -223,10 +351,24 @@ const styles = StyleSheet.create({
     color: ui.color.text,
     fontSize: 16,
     fontWeight: ui.weight.heading,
+    textAlign: 'center',
+    width: '100%',
+  },
+  age: {
+    color: ui.color.textSecondary,
+    fontSize: 12,
+    fontWeight: ui.weight.body,
+    textAlign: 'center',
+    width: '100%',
+  },
+  agePlaceholder: {
+    opacity: 0,
   },
   sub: {
     color: ui.color.textSecondary,
     fontSize: 12,
     fontWeight: ui.weight.body,
+    textAlign: 'center',
+    width: '100%',
   },
 });

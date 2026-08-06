@@ -1,0 +1,35 @@
+  const cardScale = width / BASE_CARD_WIDTH;
+  const rs = (size: number) => scaleSize(size, cardScale);
+  const m = PERSON_NODE_METRICS;
+  const scaled = useMemo(
+    () => ({
+      card: {
+        borderRadius: rs(14),
+        padding: rs(m.padding),
+        height,
+        minHeight: height,
+        maxHeight: height,
+      },
+      header: { gap: rs(6), minHeight: rs(m.headerHeight) },
+      badge: {
+        fontSize: rs(12),
+        paddingHorizontal: rs(8),
+        paddingVertical: rs(4),
+      },
+      ordinalBadge: {
+        fontSize: rs(11),
+        paddingHorizontal: rs(6),
+        paddingVertical: rs(3),
+      },
+      content: { marginTop: rs(m.contentMarginTop), gap: rs(m.contentGap) },
+      textBlock: { gap: rs(m.textGap), width: '100%' as const },
+      avatar: {
+        width: rs(m.avatarSize),
+        height: rs(m.avatarSize),
+        borderRadius: rs(m.avatarSize / 2),
+      },
+      avatarFallback: {
+        width: rs(m.avatarSize),
+        height: rs(m.avatarSize),
+        borderRadius: rs(m.avatarSize / 2),
+      },

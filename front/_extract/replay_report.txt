@@ -1,0 +1,6 @@
+EdgeLines.tsx: base=Write line 1199, applied=6, skipped=57, bytes=11227
+PersonNodeCard.tsx: base=git HEAD, applied=4, skipped=46, bytes=5751
+DraggablePersonNode.tsx: base=Write line 1011, applied=0, skipped=7, bytes=841
+standardLayout.ts: base=Write line 340, applied=100, skipped=65, bytes=41941
+standardTemplate.ts: base=Write line 286, applied=17, skipped=2, bytes=15961
+PedigreeScreen.tsx: base=git HEAD, applied=124, skipped=81, bytes=60738

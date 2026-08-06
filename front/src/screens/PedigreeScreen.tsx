@@ -5,9 +5,12 @@ import {
   Modal,
   Platform,
   Pressable,
+  ScrollView,
+  Share,
   StatusBar,
   StyleSheet,
   Text,
+  TextInput,
   View,
   type LayoutChangeEvent,
 } from 'react-native';
@@ -30,14 +33,28 @@ import { ENABLE_SERVER_SYNC } from '../config/features';
 import type { ActiveView, PedigreeStore } from '../types/lineage';
 import { ACTIVE_VIEW_BG, ACTIVE_VIEW_LABEL } from '../types/lineage';
 import {
+  clearNodeOffsets,
   clearPedigreePeople,
   loadPedigreeStore,
   parseStoredPeople,
   savePedigreeStore,
 } from '../storage/pedigreeStorage';
 import { nowIso } from '../utils/date';
-import { buildViewKinshipLabels, buildViewOrdinalLabels, canAddSiblingFromNode, nextEmptySiblingSlotId, resolveSiblingAdd, syncAllViews, syncStoreAfterEdit } from '../utils/viewSync';
-import { normalizePhoneDigits } from '../utils/phone';
+import {
+  buildViewKinshipLabels,
+  buildViewOrdinalLabels,
+  canAddSiblingFromNode,
+  nextEmptySiblingSlotId,
+  resolveParentAdd,
+  resolveSiblingAdd,
+  syncAllViews,
+  syncStoreAfterEdit,
+} from '../utils/viewSync';
+import { mergePedigreeStoresPreferLocalUserData } from '../utils/personPersist';
+import { buildContactDirectoryEntries } from '../utils/contactDirectory';
+import { exportPedigreeShare, fetchPedigreeShare } from '../utils/pedigreeShare';
+import { normalizePhoneDigits, openPhoneDialer } from '../utils/phone';
+import { openSmsComposer } from '../utils/sms';
 import {
   createDefaultStore,
   migrateLegacyToStore,
@@ -45,9 +62,11 @@ import {
   SELF_SLOT_INDEX,
   slotIdsForView,
 } from '../utils/standardTemplate';
-import { buildStandardPedigreeLayout, STANDARD_LAYOUT_DEFAULTS } from '../utils/standardLayout';
+import { buildStandardPedigreeLayout } from '../utils/standardLayout';
 import type { PositionedNode } from '../utils/pedigreeLayout';
 import { ui } from '../theme/ui';
+import { useResponsive } from '../theme/responsive';
+import { useCurrentDate } from '../hooks/useCurrentDate';
 import pako from 'pako';
 import { Buffer } from 'buffer';
 
@@ -118,6 +137,116 @@ export function PedigreeScreen({
   onRequestLinkGoogle,
 }: Props) {
   const { topInset, bottomInset } = useScreenInsets();
+  const today = useCurrentDate();
+  const { rs, layoutBase, height: windowHeight, uiScale } = useResponsive();
+  const actionSheetMaxHeight = useMemo(
+    () => Math.round(windowHeight * 0.82) - topInset,
+    [windowHeight, topInset],
+  );
+  const scaledUi = useMemo(
+    () => ({
+      header: {
+        paddingHorizontal: rs(12),
+        paddingTop: rs(4),
+        paddingBottom: rs(4),
+      },
+      headerTitle: { fontSize: rs(18) },
+      viewBadge: {
+        marginTop: rs(2),
+        paddingHorizontal: rs(8),
+        paddingVertical: rs(3),
+        borderRadius: rs(6),
+        fontSize: rs(11),
+      },
+      headerTopRow: { gap: rs(8) },
+      headerActions: { gap: rs(4) },
+      headerActionColumn: { gap: rs(4) },
+      selfReturnBtn: {
+        borderRadius: rs(8),
+        paddingHorizontal: rs(8),
+        paddingVertical: rs(5),
+      },
+      selfReturnBtnText: { fontSize: rs(11) },
+      settingsBtn: {
+        borderRadius: rs(8),
+        paddingHorizontal: rs(8),
+        paddingVertical: rs(5),
+      },
+      settingsBtnText: { fontSize: rs(11) },
+      syncText: { marginTop: rs(2), fontSize: rs(11) },
+      loadingWrap: { gap: rs(10) },
+      loadingText: { fontSize: rs(14) },
+      zoomBox: { right: rs(16), bottom: rs(18), gap: rs(10) },
+      zoomBtn: {
+        width: rs(44),
+        height: rs(44),
+        borderRadius: rs(22),
+      },
+      zoomCenterBtn: {
+        width: rs(56),
+        height: rs(44),
+        paddingHorizontal: rs(8),
+        borderRadius: rs(22),
+      },
+      zoomText: { fontSize: rs(20), marginTop: rs(-2) },
+      zoomCenterText: { fontSize: rs(12), marginTop: 0 },
+      sheet: {
+        borderTopLeftRadius: rs(20),
+        borderTopRightRadius: rs(20),
+        maxHeight: actionSheetMaxHeight,
+        paddingHorizontal: rs(12),
+        paddingTop: rs(12),
+        paddingBottom: Math.max(bottomInset, rs(10)),
+      },
+      sheetScrollContent: {
+        gap: rs(7),
+        paddingBottom: rs(4),
+      },
+      sheetTitle: { fontSize: rs(14) },
+      sheetHeaderRow: { gap: rs(8), marginBottom: rs(4) },
+      sheetHeaderActions: { gap: rs(6) },
+      sheetContactBtn: {
+        gap: rs(3),
+        paddingHorizontal: rs(8),
+        paddingVertical: rs(6),
+        borderRadius: rs(8),
+      },
+      sheetContactIcon: { fontSize: rs(14) },
+      sheetContactLabel: { fontSize: rs(11) },
+      sheetItem: {
+        borderRadius: rs(10),
+        paddingVertical: rs(10),
+        paddingHorizontal: rs(11),
+      },
+      sheetItemText: { fontSize: rs(13) },
+      lineageSwitchText: { fontSize: rs(13) },
+      sheetHint: { fontSize: rs(11), marginTop: rs(-2), marginBottom: rs(0) },
+      settingsSheet: {
+        marginHorizontal: rs(16),
+        marginTop: rs(120),
+        borderRadius: rs(16),
+        padding: rs(16),
+        gap: rs(8),
+      },
+      settingsTitle: { fontSize: rs(16), marginBottom: rs(6) },
+      settingsDesc: { fontSize: rs(13) },
+      settingsSubDesc: { fontSize: rs(12), marginBottom: rs(8) },
+      settingsActionBtn: {
+        marginTop: rs(6),
+        borderRadius: rs(10),
+        paddingHorizontal: rs(10),
+        paddingVertical: rs(11),
+      },
+      settingsActionText: { fontSize: rs(13) },
+      settingsCloseBtn: {
+        marginTop: rs(10),
+        borderRadius: rs(10),
+        paddingVertical: rs(12),
+      },
+      settingsCloseBtnText: { fontSize: rs(14) },
+    }),
+    [rs, bottomInset, actionSheetMaxHeight],
+  );
   const [store, setStore] = useState<PedigreeStore>(createInitialStore);
   const activeView = store.activeView;
   const peopleById = store.views[activeView];
@@ -159,10 +288,16 @@ export function PedigreeScreen({
   const [actionVisible, setActionVisible] = useState(false);
   const [pendingAdd, setPendingAdd] = useState<PendingAdd | null>(null);
   const [editingId, setEditingId] = useState<PersonId | null>(null);
+  const [editSection, setEditSection] = useState<'info' | 'photo'>('info');
   const [detailId, setDetailId] = useState<PersonId | null>(null);
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [contactsVisible, setContactsVisible] = useState(false);
   const [usageVisible, setUsageVisible] = useState(false);
+  const [importVisible, setImportVisible] = useState(false);
+  const [importKey, setImportKey] = useState('');
+  const [importBusy, setImportBusy] = useState(false);
+  const [exportBusy, setExportBusy] = useState(false);
+  const [exportedKey, setExportedKey] = useState<string | null>(null);
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
 
   const selectedDetail = detailId ? peopleById[detailId] : undefined;
@@ -244,11 +379,16 @@ export function PedigreeScreen({
             queueRef.current = [];
           }
         }
-      } catch {
+      } catch (err) {
+        console.warn('[PedigreeScreen] hydrate failed', err);
         if (mounted) {
-          const initial = syncAllViews(createInitialStore());
-          setStore(initial);
-          lastSyncedPeopleRef.current = initial.views[initial.activeView];
+          const retry = await loadPedigreeStore().catch(() => null);
+          if (retry) {
+            const synced = syncAllViews(retry);
+            setStore(synced);
+            lastSyncedPeopleRef.current = synced.views[synced.activeView];
+            setSelectedId(slotIdsForView(synced.activeView).selfId);
+          }
         }
       }
 
@@ -267,10 +407,19 @@ export function PedigreeScreen({
             const remotePeople = parseStoredPeople(JSON.stringify(remotePeopleRaw));
             const localStore = await loadPedigreeStore();
             if (mounted && remotePeople) {
-              const migrated = syncAllViews(reconcileStore(migrateLegacyToStore(remotePeople)));
-              setStore(migrated);
-              lastSyncedPeopleRef.current = migrated.views[migrated.activeView];
-              await savePedigreeStore(migrated);
+              const remoteStore = syncAllViews(
+                reconcileStore(migrateLegacyToStore(remotePeople)),
+              );
+              const merged = localStore
+                ? syncAllViews(
+                    reconcileStore(
+                      mergePedigreeStoresPreferLocalUserData(localStore, remoteStore),
+                    ),
+                  )
+                : remoteStore;
+              setStore(merged);
+              lastSyncedPeopleRef.current = merged.views[merged.activeView];
+              await savePedigreeStore(merged);
             } else if (mounted && !localStore) {
               const initial = syncAllViews(createInitialStore());
               setStore(initial);
@@ -385,18 +534,23 @@ export function PedigreeScreen({
   const layout = useMemo(() => {
     try {
       return buildStandardPedigreeLayout(peopleById, {
-        ...STANDARD_LAYOUT_DEFAULTS,
+        ...layoutBase,
         view: activeView,
       });
     } catch (error) {
       console.warn('[PedigreeScreen] layout failed', error);
-      const fallback = createDefaultStore().views[activeView];
-      return buildStandardPedigreeLayout(fallback, {
-        ...STANDARD_LAYOUT_DEFAULTS,
-        view: activeView,
-      });
+      const slots = slotIdsForView(activeView);
+      return {
+        canvasWidth: 1600,
+        canvasHeight: 1200,
+        nodes: [],
+        edges: [],
+        nodeById: {},
+        selfId: slots.selfId,
+        highlightIds: new Set<PersonId>([slots.selfId]),
+      };
     }
-  }, [peopleById, activeView]);
+  }, [peopleById, activeView, layoutBase]);
 
   const displayLayout = useMemo(() => {
     const nodeById: Record<PersonId, PositionedNode> = {};
@@ -439,34 +593,7 @@ export function PedigreeScreen({
     return pairs;
   }, [peopleById]);
 
-  const contactEntries = useMemo(() => {
-    const views: ActiveView[] = ['self', 'paternal', 'maternal', 'spouse'];
-    const seenPhones = new Set<string>();
-    const entries: {
-      id: string;
-      name: string;
-      phone: string;
-      viewLabel: string;
-      kinshipLabel: string;
-    }[] = [];
-
-    for (const view of views) {
-      for (const person of Object.values(store.views[view])) {
-        const digits = normalizePhoneDigits(person.phone);
-        if (!digits || seenPhones.has(digits)) continue;
-        seenPhones.add(digits);
-        entries.push({
-          id: `${view}:${person.id}`,
-          name: person.name?.trim() || '이름 없음',
-          phone: digits,
-          viewLabel: ACTIVE_VIEW_LABEL[view],
-          kinshipLabel: buildViewKinshipLabels(view, store.views[view], store.views.self)[person.id] ?? person.name,
-        });
-      }
-    }
-
-    return entries;
-  }, [store.views]);
+  const contactEntries = useMemo(() => buildContactDirectoryEntries(store), [store]);
 
   const kinshipLabelById = useMemo(
     () => buildViewKinshipLabels(activeView, peopleById, store.views.self),
@@ -630,6 +757,27 @@ export function PedigreeScreen({
     setActionVisible(true);
   };
 
+  const selectedDisplayName = selected?.name?.trim() || '이름 없음';
+
+  const openEditSection = (section: 'info' | 'photo') => {
+    setActionVisible(false);
+    setEditSection(section);
+    setEditingId(selectedId);
+  };
+
+  const callSelectedPerson = () => {
+    void openPhoneDialer(selected?.phone);
+  };
+
+  const smsSelectedPerson = () => {
+    const digits = normalizePhoneDigits(selected?.phone);
+    if (!digits) {
+      Alert.alert('연락처 없음', '문자를 보낼 전화번호가 등록되어 있지 않습니다.');
+      return;
+    }
+    void openSmsComposer([digits]);
+  };
+
   const addTitle = useMemo(() => {
     if (!pendingAdd) return '인물 등록';
     switch (pendingAdd.kind) {
@@ -656,30 +804,50 @@ export function PedigreeScreen({
       };
 
       if (action.kind === 'parent') {
-        const child = next[action.childId];
-        if (child) {
-          const normalizedParent: Person = {
-            ...next[person.id],
-            gender:
-              next[person.id].gender && next[person.id].gender !== 'unknown'
-                ? next[person.id].gender
-                : action.parentType === 'father'
-                  ? 'male'
-                  : 'female',
-          };
-          next[person.id] = normalizedParent;
-          const otherParentId =
-            action.parentType === 'father' ? child.motherId : child.fatherId;
-          next[action.childId] = {
-            ...child,
-            ...(action.parentType === 'father'
-              ? { fatherId: person.id }
-              : { motherId: person.id }),
-          };
-          if (otherParentId && next[otherParentId]) {
-            next[person.id] = { ...next[person.id], spouseId: otherParentId };
-            next[otherParentId] = { ...next[otherParentId], spouseId: person.id };
-          }
+        const resolved = resolveParentAdd(
+          activeView,
+          next,
+          action.childId,
+          action.parentType,
+          person.id,
+        );
+        if (!resolved || resolved.status === 'exists') return prev;
+
+        const linkChild = next[resolved.linkChildId];
+        if (!linkChild) return prev;
+
+        const finalId = resolved.useSlotId ? resolved.parentId : person.id;
+        if (finalId !== person.id) {
+          delete next[person.id];
+        }
+
+        const normalizedParent: Person = {
+          ...person,
+          id: finalId,
+          gender:
+            person.gender && person.gender !== 'unknown'
+              ? person.gender
+              : action.parentType === 'father'
+                ? 'male'
+                : 'female',
+        };
+        next[finalId] = normalizedParent;
+
+        // 조부모 부부에서 추가해도 혈연 조부(외조부)에 증조 링크를 건다.
+        const nextFatherId =
+          action.parentType === 'father' ? finalId : linkChild.fatherId ?? resolved.otherParentId;
+        const nextMotherId =
+          action.parentType === 'mother' ? finalId : linkChild.motherId ?? resolved.otherParentId;
+        next[resolved.linkChildId] = {
+          ...linkChild,
+          fatherId: nextFatherId,
+          motherId: nextMotherId,
+        };
+
+        const otherParentId = resolved.otherParentId;
+        if (otherParentId && next[otherParentId]) {
+          next[finalId] = { ...next[finalId], spouseId: otherParentId };
+          next[otherParentId] = { ...next[otherParentId], spouseId: finalId };
         }
       } else if (action.kind === 'sibling') {
         const resolved = resolveSiblingAdd(activeView, next, action.ofId);
@@ -714,6 +882,15 @@ export function PedigreeScreen({
         if (base) {
           next[action.ofId] = { ...base, spouseId: person.id };
           next[person.id] = { ...next[person.id], spouseId: action.ofId };
+          // 기존 자녀에 한쪽 부모만 있으면 새 배우자를 다른 쪽으로 채움
+          for (const p of Object.values(next)) {
+            if (p.id === person.id || p.id === action.ofId) continue;
+            if (p.fatherId === action.ofId && !p.motherId) {
+              next[p.id] = { ...p, motherId: person.id };
+            } else if (p.motherId === action.ofId && !p.fatherId) {
+              next[p.id] = { ...p, fatherId: person.id };
+            }
+          }
         }
       }
 
@@ -778,6 +955,68 @@ export function PedigreeScreen({
     ]);
   };
 
+  const exportSelectedAsShare = async () => {
+    if (!selectedId || exportBusy) return;
+    setExportBusy(true);
+    setActionVisible(false);
+    try {
+      const key = await exportPedigreeShare({
+        store,
+        focalPersonId: selectedId,
+        sourceView: activeView,
+      });
+      setExportedKey(key);
+    } catch (e) {
+      Alert.alert(
+        '내보내기 실패',
+        e instanceof Error ? e.message : '족보 내보내기에 실패했습니다.',
+      );
+    } finally {
+      setExportBusy(false);
+    }
+  };
+
+  const confirmImportShare = () => {
+    const key = importKey.trim();
+    if (!key) {
+      Alert.alert('키가 잘못되었습니다.', '공유 키를 입력해 주세요.');
+      return;
+    }
+    Alert.alert('족보 불러오기', '적용하시겠습니까?\n현재 족보는 불러온 내용으로 전체 교체됩니다.', [
+      { text: '취소', style: 'cancel' },
+      {
+        text: '적용',
+        style: 'destructive',
+        onPress: async () => {
+          setImportBusy(true);
+          try {
+            const remote = await fetchPedigreeShare(key);
+            const next = syncAllViews(reconcileStore(remote));
+            setStore(next);
+            setSelectedId(slotIdsForView('self').selfId);
+            lastSyncedPeopleRef.current = next.views.self;
+            deletedIdsRef.current.clear();
+            queueRef.current = [];
+            setSyncStatus('idle');
+            await savePedigreeStore(next);
+            await clearNodeOffsets();
+            setImportVisible(false);
+            setImportKey('');
+            requestAnimationFrame(() => centerOnPedigree(true));
+            Alert.alert('불러오기 완료', '공유 족보를 적용했습니다.');
+          } catch (e) {
+            Alert.alert(
+              '불러오기 실패',
+              e instanceof Error ? e.message : '키가 잘못되었습니다.',
+            );
+          } finally {
+            setImportBusy(false);
+          }
+        },
+      },
+    ]);
+  };
+
   const askSwitchAccount = async () => {
     if (!onRequestSwitchAccount) return;
     setSettingsVisible(false);
@@ -824,9 +1063,9 @@ export function PedigreeScreen({
           { backgroundColor: screenBg, paddingTop: topInset, paddingBottom: bottomInset },
         ]}
       >
-        <View style={styles.loadingWrap}>
+        <View style={[styles.loadingWrap, scaledUi.loadingWrap]}>
           <ActivityIndicator size="large" color={ui.color.accent} />
-          <Text style={styles.loadingText}>족보 불러오는 중...</Text>
+          <Text style={[styles.loadingText, scaledUi.loadingText]}>족보 불러오는 중...</Text>
         </View>
       </View>
     );
@@ -839,34 +1078,49 @@ export function PedigreeScreen({
         { backgroundColor: screenBg, paddingTop: topInset, paddingBottom: bottomInset },
       ]}
     >
-      <View style={[styles.header, { backgroundColor: screenBg }]}>
-        <View style={styles.headerTopRow}>
+      <View style={[styles.header, scaledUi.header, { backgroundColor: screenBg }]}>
+        <View style={[styles.headerTopRow, scaledUi.headerTopRow]}>
           <View style={styles.headerTitleWrap}>
-            <Text style={styles.headerTitle}>가족가계도</Text>
-            <Text style={[styles.viewBadge, { backgroundColor: ACTIVE_VIEW_BG[activeView] }]}>
+            <Text style={[styles.headerTitle, scaledUi.headerTitle]}>가족가계도</Text>
+            <Text
+              style={[
+                styles.viewBadge,
+                scaledUi.viewBadge,
+                { backgroundColor: ACTIVE_VIEW_BG[activeView] },
+              ]}
+            >
               {ACTIVE_VIEW_LABEL[activeView]} 시점
             </Text>
           </View>
-          <View style={styles.headerActions}>
-            <Pressable style={styles.settingsBtn} onPress={() => setContactsVisible(true)}>
-              <Text style={styles.settingsBtnText}>연락처</Text>
+          <View style={[styles.headerActions, scaledUi.headerActions]}>
+            <Pressable style={[styles.settingsBtn, scaledUi.settingsBtn]} onPress={() => setContactsVisible(true)}>
+              <Text style={[styles.settingsBtnText, scaledUi.settingsBtnText]}>연락처</Text>
             </Pressable>
-            <Pressable style={styles.settingsBtn} onPress={() => setSettingsVisible(true)}>
-              <Text style={styles.settingsBtnText}>설정</Text>
+            <Pressable
+              style={[styles.settingsBtn, scaledUi.settingsBtn]}
+              onPress={() => {
+                setImportKey('');
+                setImportVisible(true);
+              }}
+            >
+              <Text style={[styles.settingsBtnText, scaledUi.settingsBtnText]}>족보 불러오기</Text>
             </Pressable>
-            <View style={styles.headerActionColumn}>
-              <Pressable style={styles.settingsBtn} onPress={() => setUsageVisible(true)}>
-                <Text style={styles.settingsBtnText}>사용법</Text>
+            <Pressable style={[styles.settingsBtn, scaledUi.settingsBtn]} onPress={() => setSettingsVisible(true)}>
+              <Text style={[styles.settingsBtnText, scaledUi.settingsBtnText]}>설정</Text>
+            </Pressable>
+            <View style={[styles.headerActionColumn, scaledUi.headerActionColumn]}>
+              <Pressable style={[styles.settingsBtn, scaledUi.settingsBtn]} onPress={() => setUsageVisible(true)}>
+                <Text style={[styles.settingsBtnText, scaledUi.settingsBtnText]}>사용법</Text>
               </Pressable>
               {activeView !== 'self' ? (
-                <Pressable style={styles.selfReturnBtn} onPress={switchToSelfView}>
-                  <Text style={styles.selfReturnBtnText}>나 시점</Text>
+                <Pressable style={[styles.selfReturnBtn, scaledUi.selfReturnBtn]} onPress={switchToSelfView}>
+                  <Text style={[styles.selfReturnBtnText, scaledUi.selfReturnBtnText]}>나 시점</Text>
                 </Pressable>
               ) : null}
             </View>
           </View>
         </View>
-        <Text style={styles.syncText}>
+        <Text style={[styles.syncText, scaledUi.syncText]}>
           {localSaveStatus === 'error'
             ? '기기 저장 실패'
             : ENABLE_SERVER_SYNC && auth?.googleSub
@@ -905,33 +1159,50 @@ export function PedigreeScreen({
               const p = peopleById[n.id];
               if (!p) return null;
               return (
-                <View key={n.id} style={[styles.node, { left: n.x, top: n.y }]}>
+                <View
+                  key={n.id}
+                  style={[styles.node, { left: n.x, top: n.y, width: n.width, height: n.height }]}
+                >
                   <DraggablePersonNode
                     person={p}
                     label={kinshipLabelById[p.id] ?? p.name}
                     ordinalLabel={ordinalLabelById[p.id]}
                     width={n.width}
+                    height={n.height}
                     highlighted={layout.highlightIds.has(n.id)}
                     generation={n.generation}
+                    referenceDate={today}
+                    activeView={activeView}
                     onPress={() => openActionsFor(n.id)}
                   />
                 </View>
               );
             })}
+
           </Animated.View>
         </GestureDetector>
       </View>
 
-      {/* 줌 컨트롤: + / − / 中(중앙 복귀) */}
-      <View style={styles.zoomBox}>
-        <Pressable style={styles.zoomBtn} onPress={() => zoomBy(1.2)}>
-          <Text style={styles.zoomText}>+</Text>
+      {exportBusy ? (
+        <View style={styles.shareBusyOverlay} pointerEvents="auto">
+          <ActivityIndicator size="large" color={ui.color.accentDark} />
+          <Text style={styles.shareBusyText}>족보 내보내는 중…</Text>
+        </View>
+      ) : null}
+
+      {/* 줌 컨트롤: + / − / 센터(중앙 복귀) */}
+      <View style={[styles.zoomBox, scaledUi.zoomBox]}>
+        <Pressable style={[styles.zoomBtn, scaledUi.zoomBtn]} onPress={() => zoomBy(1.2)}>
+          <Text style={[styles.zoomText, scaledUi.zoomText]}>+</Text>
         </Pressable>
-        <Pressable style={styles.zoomBtn} onPress={() => zoomBy(1 / 1.2)}>
-          <Text style={styles.zoomText}>−</Text>
+        <Pressable style={[styles.zoomBtn, scaledUi.zoomBtn]} onPress={() => zoomBy(1 / 1.2)}>
+          <Text style={[styles.zoomText, scaledUi.zoomText]}>−</Text>
         </Pressable>
-        <Pressable style={[styles.zoomBtn, styles.zoomCenterBtn]} onPress={recenterToSelfView}>
-          <Text style={styles.zoomCenterText}>中</Text>
+        <Pressable
+          style={[styles.zoomBtn, styles.zoomCenterBtn, scaledUi.zoomCenterBtn]}
+          onPress={recenterToSelfView}
+        >
+          <Text style={[styles.zoomCenterText, scaledUi.zoomCenterText]}>센터</Text>
         </Pressable>
       </View>
 
@@ -943,120 +1214,186 @@ export function PedigreeScreen({
         onRequestClose={() => setActionVisible(false)}
       >
         <Pressable style={styles.sheetBackdrop} onPress={() => setActionVisible(false)}>
-          <Pressable style={styles.sheet} onPress={() => {}}>
-            <Text style={styles.sheetTitle}>
-              {selected?.name ?? '인물'} · 작업
-            </Text>
+          <Pressable style={[styles.sheet, scaledUi.sheet]} onPress={() => {}}>
+            <View style={[styles.sheetHeaderRow, scaledUi.sheetHeaderRow]}>
+              <Text style={[styles.sheetTitle, scaledUi.sheetTitle]} numberOfLines={1}>
+                {selectedDisplayName}
+              </Text>
+              <View style={[styles.sheetHeaderActions, scaledUi.sheetHeaderActions]}>
+                <Pressable
+                  style={[styles.sheetContactBtn, scaledUi.sheetContactBtn]}
+                  onPress={callSelectedPerson}
+                  accessibilityLabel="전화걸기"
+                >
+                  <Text style={[styles.sheetContactIcon, scaledUi.sheetContactIcon]}>☎</Text>
+                  <Text style={[styles.sheetContactLabel, scaledUi.sheetContactLabel]}>전화걸기</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.sheetContactBtn, scaledUi.sheetContactBtn]}
+                  onPress={smsSelectedPerson}
+                  accessibilityLabel="문자 보내기"
+                >
+                  <Text style={[styles.sheetContactIcon, scaledUi.sheetContactIcon]}>✉</Text>
+                  <Text style={[styles.sheetContactLabel, scaledUi.sheetContactLabel]}>문자</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.sheetContactBtn, scaledUi.sheetContactBtn, styles.sheetCloseBtn]}
+                  onPress={() => setActionVisible(false)}
+                  accessibilityLabel="닫기"
+                >
+                  <Text style={[styles.sheetContactLabel, scaledUi.sheetContactLabel, styles.sheetCloseBtnText]}>
+                    닫기
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
 
-            <Pressable
-              style={styles.sheetItem}
-              onPress={() => {
-                setActionVisible(false);
-                setEditingId(selectedId);
-              }}
+            <ScrollView
+              style={styles.sheetScroll}
+              contentContainerStyle={[styles.sheetScrollContent, scaledUi.sheetScrollContent]}
+              showsVerticalScrollIndicator
+              bounces={false}
+              keyboardShouldPersistTaps="handled"
             >
-              <Text style={styles.sheetItemText}>정보/사진 수정</Text>
+            <Pressable style={[styles.sheetItem, scaledUi.sheetItem, styles.sheetEditItem]} onPress={() => openEditSection('info')}>
+              <Text style={[styles.sheetItemText, scaledUi.sheetItemText, styles.sheetEditItemText]}>자료·정보 입력</Text>
+            </Pressable>
+
+            <Pressable style={[styles.sheetItem, scaledUi.sheetItem, styles.sheetEditItem]} onPress={() => openEditSection('photo')}>
+              <Text style={[styles.sheetItemText, scaledUi.sheetItemText, styles.sheetEditItemText]}>사진 추가·수정</Text>
             </Pressable>
 
             <Pressable
-              style={styles.sheetItem}
+              style={[styles.sheetItem, scaledUi.sheetItem]}
               onPress={() => {
                 setActionVisible(false);
                 setDetailId(selectedId);
               }}
             >
-              <Text style={styles.sheetItemText}>정보 보기</Text>
+              <Text style={[styles.sheetItemText, scaledUi.sheetItemText]}>정보 보기</Text>
+            </Pressable>
+
+            <Pressable
+              style={[styles.sheetItem, scaledUi.sheetItem, styles.sheetExportItem]}
+              onPress={exportSelectedAsShare}
+              disabled={exportBusy}
+            >
+              <Text style={[styles.sheetItemText, scaledUi.sheetItemText, styles.sheetExportItemText]}>
+                {exportBusy ? '내보내는 중…' : '이 사람을 기준으로 족보 내보내기'}
+              </Text>
             </Pressable>
 
             {activeView === 'self' && selectedId === slots.selfId ? (
               <>
                 <Pressable
-                  style={[styles.sheetItem, styles.lineageSwitch]}
+                  style={[styles.sheetItem, scaledUi.sheetItem, styles.lineageSwitch]}
                   onPress={() => switchLineageView('paternal')}
                 >
-                  <Text style={styles.lineageSwitchText}>친가보기</Text>
+                  <Text style={[styles.lineageSwitchText, scaledUi.lineageSwitchText]}>친가보기</Text>
                 </Pressable>
                 <Pressable
-                  style={[styles.sheetItem, styles.lineageSwitchMaternal]}
+                  style={[styles.sheetItem, scaledUi.sheetItem, styles.lineageSwitchMaternal]}
                   onPress={() => switchLineageView('maternal')}
                 >
-                  <Text style={styles.lineageSwitchText}>외가보기</Text>
+                  <Text style={[styles.lineageSwitchText, scaledUi.lineageSwitchText]}>외가보기</Text>
                 </Pressable>
                 <Pressable
-                  style={[styles.sheetItem, styles.lineageSwitchSpouse]}
+                  style={[styles.sheetItem, scaledUi.sheetItem, styles.lineageSwitchSpouse]}
                   onPress={() => switchLineageView('spouse')}
                 >
-                  <Text style={styles.lineageSwitchText}>배우자보기</Text>
+                  <Text style={[styles.lineageSwitchText, scaledUi.lineageSwitchText]}>배우자보기</Text>
                 </Pressable>
               </>
             ) : null}
 
             {activeView === 'self' && selectedId === slots.father ? (
               <Pressable
-                style={[styles.sheetItem, styles.lineageSwitch]}
+                style={[styles.sheetItem, scaledUi.sheetItem, styles.lineageSwitch]}
                 onPress={() => switchLineageView('paternal')}
               >
-                <Text style={styles.lineageSwitchText}>친가보기</Text>
+                <Text style={[styles.lineageSwitchText, scaledUi.lineageSwitchText]}>친가보기</Text>
               </Pressable>
             ) : null}
 
             {activeView === 'self' && selectedId === slots.mother ? (
               <Pressable
-                style={[styles.sheetItem, styles.lineageSwitchMaternal]}
+                style={[styles.sheetItem, scaledUi.sheetItem, styles.lineageSwitchMaternal]}
                 onPress={() => switchLineageView('maternal')}
               >
-                <Text style={styles.lineageSwitchText}>외가보기</Text>
+                <Text style={[styles.lineageSwitchText, scaledUi.lineageSwitchText]}>외가보기</Text>
               </Pressable>
             ) : null}
 
             {activeView === 'self' && selectedId === slots.spouseId ? (
               <Pressable
-                style={[styles.sheetItem, styles.lineageSwitchSpouse]}
+                style={[styles.sheetItem, scaledUi.sheetItem, styles.lineageSwitchSpouse]}
                 onPress={() => switchLineageView('spouse')}
               >
-                <Text style={styles.lineageSwitchText}>배우자보기</Text>
+                <Text style={[styles.lineageSwitchText, scaledUi.lineageSwitchText]}>배우자보기</Text>
               </Pressable>
             ) : null}
 
             {activeView !== 'self' ? (
-              <Pressable style={styles.sheetItem} onPress={switchToSelfView}>
-                <Text style={styles.sheetItemText}>나 시점으로 돌아가기</Text>
+              <Pressable style={[styles.sheetItem, scaledUi.sheetItem]} onPress={switchToSelfView}>
+                <Text style={[styles.sheetItemText, scaledUi.sheetItemText]}>나 시점으로 돌아가기</Text>
               </Pressable>
             ) : null}
 
             <Pressable
-              style={styles.sheetItem}
+              style={[styles.sheetItem, scaledUi.sheetItem]}
               onPress={() => {
+                const resolved = resolveParentAdd(
+                  activeView,
+                  peopleById,
+                  selectedId,
+                  'father',
+                  '__pending__',
+                );
                 setActionVisible(false);
+                if (resolved?.status === 'exists') {
+                  Alert.alert('이미 부가 있어요', '현재 인물에는 이미 아버지(부)가 연결되어 있습니다.');
+                  return;
+                }
                 setPendingAdd({ kind: 'parent', childId: selectedId, parentType: 'father' });
               }}
             >
-              <Text style={styles.sheetItemText}>부(아버지) 추가</Text>
+              <Text style={[styles.sheetItemText, scaledUi.sheetItemText]}>부(아버지) 추가</Text>
             </Pressable>
             <Pressable
-              style={styles.sheetItem}
+              style={[styles.sheetItem, scaledUi.sheetItem]}
               onPress={() => {
+                const resolved = resolveParentAdd(
+                  activeView,
+                  peopleById,
+                  selectedId,
+                  'mother',
+                  '__pending__',
+                );
                 setActionVisible(false);
+                if (resolved?.status === 'exists') {
+                  Alert.alert('이미 모가 있어요', '현재 인물에는 이미 어머니(모)가 연결되어 있습니다.');
+                  return;
+                }
                 setPendingAdd({ kind: 'parent', childId: selectedId, parentType: 'mother' });
               }}
             >
-              <Text style={styles.sheetItemText}>모(어머니) 추가</Text>
+              <Text style={[styles.sheetItemText, scaledUi.sheetItemText]}>모(어머니) 추가</Text>
             </Pressable>
 
             {canAddSiblingFromNode(activeView, selectedId) ? (
               <Pressable
-                style={styles.sheetItem}
+                style={[styles.sheetItem, scaledUi.sheetItem]}
                 onPress={() => {
                   setActionVisible(false);
                   setPendingAdd({ kind: 'sibling', ofId: selectedId });
                 }}
               >
-                <Text style={styles.sheetItemText}>형제/자매 추가(같은 줄)</Text>
+                <Text style={[styles.sheetItemText, scaledUi.sheetItemText]}>형제/자매 추가(같은 줄)</Text>
               </Pressable>
             ) : null}
 
             <Pressable
-              style={styles.sheetItem}
+              style={[styles.sheetItem, scaledUi.sheetItem]}
               onPress={() => {
                 if (selected?.spouseId) {
                   setActionVisible(false);
@@ -1067,23 +1404,23 @@ export function PedigreeScreen({
                 setPendingAdd({ kind: 'spouse', ofId: selectedId });
               }}
             >
-              <Text style={styles.sheetItemText}>배우자 추가</Text>
+              <Text style={[styles.sheetItemText, scaledUi.sheetItemText]}>배우자 추가</Text>
             </Pressable>
 
-            <Text style={styles.sheetHint}>배우자가 있으면 자동으로 부모 2명 연결</Text>
+            <Text style={[styles.sheetHint, scaledUi.sheetHint]}>배우자가 있으면 자동으로 부모 2명 연결</Text>
             <Pressable
-              style={styles.sheetItem}
+              style={[styles.sheetItem, scaledUi.sheetItem]}
               onPress={() => {
                 setActionVisible(false);
                 setPendingAdd({ kind: 'child', parentId: selectedId });
               }}
             >
-              <Text style={styles.sheetItemText}>자녀 추가</Text>
+              <Text style={[styles.sheetItemText, scaledUi.sheetItemText]}>자녀 추가</Text>
             </Pressable>
 
             {selectedId !== slots.selfId ? (
               <Pressable
-                style={[styles.sheetItem, styles.danger]}
+                style={[styles.sheetItem, scaledUi.sheetItem, styles.danger]}
                 onPress={() => {
                   setActionVisible(false);
                   Alert.alert('삭제', '이 인물을 삭제할까요? (연결은 자동 해제됩니다)', [
@@ -1092,9 +1429,10 @@ export function PedigreeScreen({
                   ]);
                 }}
               >
-                <Text style={[styles.sheetItemText, styles.dangerText]}>삭제</Text>
+                <Text style={[styles.sheetItemText, scaledUi.sheetItemText, styles.dangerText]}>삭제</Text>
               </Pressable>
             ) : null}
+            </ScrollView>
           </Pressable>
         </Pressable>
       </Modal>
@@ -1109,7 +1447,8 @@ export function PedigreeScreen({
 
       <AddPersonModal
         visible={editingId != null}
-        title="정보 수정"
+        title={editSection === 'photo' ? '사진 추가·수정' : '자료·정보 입력'}
+        section={editSection}
         initialPerson={editingId ? peopleById[editingId] : undefined}
         auth={auth}
         onClose={() => setEditingId(null)}
@@ -1146,40 +1485,40 @@ export function PedigreeScreen({
         onRequestClose={() => setSettingsVisible(false)}
       >
         <Pressable style={styles.sheetBackdrop} onPress={() => setSettingsVisible(false)}>
-          <Pressable style={styles.settingsSheet} onPress={() => {}}>
-            <Text style={styles.settingsTitle}>설정</Text>
+          <Pressable style={[styles.settingsSheet, scaledUi.settingsSheet]} onPress={() => {}}>
+            <Text style={[styles.settingsTitle, scaledUi.settingsTitle]}>설정</Text>
             {auth?.googleSub ? (
               <>
-                <Text style={styles.settingsDesc}>
+                <Text style={[styles.settingsDesc, scaledUi.settingsDesc]}>
                   계정: {auth.name?.trim() ? auth.name : auth.email ?? auth.googleSub}
                 </Text>
-                <Text style={styles.settingsSubDesc}>{auth.email ?? auth.googleSub}</Text>
-                <Pressable style={styles.settingsActionBtn} onPress={askSwitchAccount}>
-                  <Text style={styles.settingsActionText}>구글 계정 변경</Text>
+                <Text style={[styles.settingsSubDesc, scaledUi.settingsSubDesc]}>{auth.email ?? auth.googleSub}</Text>
+                <Pressable style={[styles.settingsActionBtn, scaledUi.settingsActionBtn]} onPress={askSwitchAccount}>
+                  <Text style={[styles.settingsActionText, scaledUi.settingsActionText]}>구글 계정 변경</Text>
                 </Pressable>
-                <Pressable style={styles.settingsActionBtn} onPress={askLogout}>
-                  <Text style={styles.settingsActionText}>로그아웃</Text>
+                <Pressable style={[styles.settingsActionBtn, scaledUi.settingsActionBtn]} onPress={askLogout}>
+                  <Text style={[styles.settingsActionText, scaledUi.settingsActionText]}>로그아웃</Text>
                 </Pressable>
               </>
             ) : (
               <>
-                <Text style={styles.settingsDesc}>게스트 모드</Text>
-                <Text style={styles.settingsSubDesc}>
+                <Text style={[styles.settingsDesc, scaledUi.settingsDesc]}>게스트 모드</Text>
+                <Text style={[styles.settingsSubDesc, scaledUi.settingsSubDesc]}>
                   구글 연동 시 계정 정보를 관리합니다. 족보 데이터는 기기에 저장됩니다.
                 </Text>
-                <Pressable style={styles.settingsActionBtn} onPress={askLinkGoogle}>
-                  <Text style={styles.settingsActionText}>구글 연동 시작</Text>
+                <Pressable style={[styles.settingsActionBtn, scaledUi.settingsActionBtn]} onPress={askLinkGoogle}>
+                  <Text style={[styles.settingsActionText, scaledUi.settingsActionText]}>구글 연동 시작</Text>
                 </Pressable>
               </>
             )}
             <Pressable
-              style={[styles.settingsActionBtn, styles.settingsDangerBtn]}
+              style={[styles.settingsActionBtn, scaledUi.settingsActionBtn, styles.settingsDangerBtn]}
               onPress={resetPedigree}
             >
-              <Text style={[styles.settingsActionText, styles.settingsDangerText]}>족보 초기화</Text>
+              <Text style={[styles.settingsActionText, scaledUi.settingsActionText, styles.settingsDangerText]}>족보 초기화</Text>
             </Pressable>
-            <Pressable style={styles.settingsCloseBtn} onPress={() => setSettingsVisible(false)}>
-              <Text style={styles.settingsCloseBtnText}>닫기</Text>
+            <Pressable style={[styles.settingsCloseBtn, scaledUi.settingsCloseBtn]} onPress={() => setSettingsVisible(false)}>
+              <Text style={[styles.settingsCloseBtnText, scaledUi.settingsCloseBtnText]}>닫기</Text>
             </Pressable>
           </Pressable>
         </Pressable>
@@ -1193,39 +1532,121 @@ export function PedigreeScreen({
 
       <Modal
         transparent
+        visible={importVisible}
+        animationType="fade"
+        onRequestClose={() => !importBusy && setImportVisible(false)}
+      >
+        <Pressable
+          style={styles.sheetBackdrop}
+          onPress={() => !importBusy && setImportVisible(false)}
+        >
+          <Pressable style={[styles.settingsSheet, scaledUi.settingsSheet]} onPress={() => {}}>
+            <Text style={[styles.settingsTitle, scaledUi.settingsTitle]}>족보 불러오기</Text>
+            <Text style={[styles.settingsSubDesc, scaledUi.settingsSubDesc]}>
+              공유 키를 입력하면 서버에서 족보를 불러와 현재 족보를 교체합니다.
+            </Text>
+            <TextInput
+              value={importKey}
+              onChangeText={setImportKey}
+              placeholder="예: KS2V24DKr2"
+              autoCapitalize="none"
+              autoCorrect={false}
+              editable={!importBusy}
+              style={styles.shareKeyInput}
+            />
+            <Pressable
+              style={[styles.settingsActionBtn, scaledUi.settingsActionBtn]}
+              onPress={confirmImportShare}
+              disabled={importBusy}
+            >
+              <Text style={[styles.settingsActionText, scaledUi.settingsActionText]}>
+                {importBusy ? '불러오는 중…' : '확인'}
+              </Text>
+            </Pressable>
+            <Pressable
+              style={[styles.settingsCloseBtn, scaledUi.settingsCloseBtn]}
+              onPress={() => !importBusy && setImportVisible(false)}
+              disabled={importBusy}
+            >
+              <Text style={[styles.settingsCloseBtnText, scaledUi.settingsCloseBtnText]}>닫기</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal
+        transparent
+        visible={!!exportedKey}
+        animationType="fade"
+        onRequestClose={() => setExportedKey(null)}
+      >
+        <Pressable style={styles.sheetBackdrop} onPress={() => setExportedKey(null)}>
+          <Pressable style={[styles.settingsSheet, scaledUi.settingsSheet]} onPress={() => {}}>
+            <Text style={[styles.settingsTitle, scaledUi.settingsTitle]}>내보내기 완료</Text>
+            <Text style={[styles.settingsSubDesc, scaledUi.settingsSubDesc]}>
+              아래 키를 상대방에게 전달하세요. 상대방은 「족보 불러오기」에서 이 키를 입력하면 됩니다.
+            </Text>
+            <Text selectable style={styles.shareKeyValue}>
+              {exportedKey}
+            </Text>
+            <Pressable
+              style={[styles.settingsActionBtn, scaledUi.settingsActionBtn]}
+              onPress={async () => {
+                if (!exportedKey) return;
+                try {
+                  await Share.share({ message: exportedKey });
+                } catch {
+                  // 공유 취소 등 무시
+                }
+              }}
+            >
+              <Text style={[styles.settingsActionText, scaledUi.settingsActionText]}>키 공유하기</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.settingsCloseBtn, scaledUi.settingsCloseBtn]}
+              onPress={() => setExportedKey(null)}
+            >
+              <Text style={[styles.settingsCloseBtnText, scaledUi.settingsCloseBtnText]}>닫기</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal
+        transparent
         visible={usageVisible}
         animationType="fade"
         onRequestClose={() => setUsageVisible(false)}
       >
         <Pressable style={styles.sheetBackdrop} onPress={() => setUsageVisible(false)}>
-          <Pressable style={styles.settingsSheet} onPress={() => {}}>
-            <Text style={styles.settingsTitle}>사용법</Text>
-            <Text style={styles.settingsDesc}>1) 인물 카드 탭 → 작업 메뉴 열기</Text>
-            <Text style={styles.settingsSubDesc}>
+          <Pressable style={[styles.settingsSheet, scaledUi.settingsSheet]} onPress={() => {}}>
+            <Text style={[styles.settingsTitle, scaledUi.settingsTitle]}>사용법</Text>
+            <Text style={[styles.settingsDesc, scaledUi.settingsDesc]}>1) 인물 카드 탭 → 작업 메뉴 열기</Text>
+            <Text style={[styles.settingsSubDesc, scaledUi.settingsSubDesc]}>
               부모/형제/배우자/자녀 추가, 정보 수정/삭제를 카드별로 실행할 수 있습니다.
             </Text>
             {activeView === 'self' ? (
               <>
-                <Text style={styles.settingsDesc}>2) 시점 전환</Text>
-                <Text style={styles.settingsSubDesc}>
+                <Text style={[styles.settingsDesc, scaledUi.settingsDesc]}>2) 시점 전환</Text>
+                <Text style={[styles.settingsSubDesc, scaledUi.settingsSubDesc]}>
                   아버지/어머니/배우자 카드에서 해당 집안 시점으로 전환할 수 있습니다.
                 </Text>
               </>
             ) : null}
-            <Text style={styles.settingsDesc}>{activeView === 'self' ? '3' : '2'}) 이동/확대</Text>
-            <Text style={styles.settingsSubDesc}>
+            <Text style={[styles.settingsDesc, scaledUi.settingsDesc]}>{activeView === 'self' ? '3' : '2'}) 이동/확대</Text>
+            <Text style={[styles.settingsSubDesc, scaledUi.settingsSubDesc]}>
               핀치로 확대/축소, 드래그로 화면을 이동할 수 있습니다.
             </Text>
             {activeView !== 'self' ? (
               <>
-                <Text style={styles.settingsDesc}>3) 나 시점 버튼</Text>
-                <Text style={styles.settingsSubDesc}>
+                <Text style={[styles.settingsDesc, scaledUi.settingsDesc]}>3) 나 시점 버튼</Text>
+                <Text style={[styles.settingsSubDesc, scaledUi.settingsSubDesc]}>
                   오른쪽 위 「나 시점」 버튼을 누르면 나 시점으로 돌아갑니다.
                 </Text>
               </>
             ) : null}
-            <Pressable style={styles.settingsCloseBtn} onPress={() => setUsageVisible(false)}>
-              <Text style={styles.settingsCloseBtnText}>닫기</Text>
+            <Pressable style={[styles.settingsCloseBtn, scaledUi.settingsCloseBtn]} onPress={() => setUsageVisible(false)}>
+              <Text style={[styles.settingsCloseBtnText, scaledUi.settingsCloseBtnText]}>닫기</Text>
             </Pressable>
           </Pressable>
         </Pressable>
@@ -1378,26 +1799,126 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 20,
     borderWidth: 1,
     borderColor: ui.color.borderLight,
-    padding: 16,
-    gap: 10,
+    overflow: 'hidden',
+  },
+  sheetScroll: {
+    flexGrow: 0,
+    flexShrink: 1,
+  },
+  sheetScrollContent: {
+    gap: 7,
   },
   sheetTitle: {
+    flex: 1,
     color: ui.color.text,
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: ui.weight.heading,
-    marginBottom: 6,
+    minWidth: 0,
   },
-  sheetItem: {
-    paddingHorizontal: 12,
-    paddingVertical: 13,
-    borderRadius: 12,
+  sheetHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
+  sheetHeaderActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexShrink: 0,
+  },
+  sheetContactBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 8,
     backgroundColor: ui.color.surface,
     borderWidth: 1,
     borderColor: ui.color.border,
   },
+  sheetContactIcon: {
+    fontSize: 14,
+    color: ui.color.text,
+    fontWeight: ui.weight.title,
+  },
+  sheetContactLabel: {
+    fontSize: 11,
+    color: ui.color.text,
+    fontWeight: ui.weight.title,
+  },
+  sheetCloseBtn: {
+    backgroundColor: ui.color.surfaceMuted,
+  },
+  sheetCloseBtnText: {
+    color: ui.color.textSecondary,
+  },
+  sheetItem: {
+    paddingHorizontal: 11,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: ui.color.surface,
+    borderWidth: 1,
+    borderColor: ui.color.border,
+  },
+  sheetEditItem: {
+    backgroundColor: '#FFF8D6',
+    borderColor: '#F0E0A0',
+  },
+  sheetEditItemText: {
+    color: ui.color.danger,
+  },
+  sheetExportItem: {
+    backgroundColor: '#E8F1FF',
+    borderColor: '#BFDBFE',
+  },
+  sheetExportItemText: {
+    color: ui.color.accentDark,
+    fontWeight: ui.weight.title,
+  },
+  shareKeyInput: {
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: ui.color.border,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: ui.color.text,
+    backgroundColor: ui.color.surface,
+  },
+  shareKeyValue: {
+    marginTop: 14,
+    marginBottom: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: ui.color.border,
+    fontSize: 22,
+    fontWeight: ui.weight.heading,
+    textAlign: 'center',
+    letterSpacing: 1,
+    color: ui.color.text,
+  },
+  shareBusyOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(15, 23, 42, 0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 30,
+    gap: 12,
+  },
+  shareBusyText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: ui.weight.title,
+  },
   sheetItemText: {
     color: ui.color.text,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: ui.weight.title,
   },
   lineageSwitch: {
@@ -1414,14 +1935,14 @@ const styles = StyleSheet.create({
   },
   lineageSwitchText: {
     color: ui.color.text,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: ui.weight.title,
   },
   sheetHint: {
     color: ui.color.textSecondary,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: ui.weight.body,
-    marginTop: 6,
+    marginTop: 2,
   },
   sheetRow: {
     flexDirection: 'row',

@@ -21,10 +21,10 @@ import type { Edge, PositionedNode } from '../utils/pedigreeLayout';
 
 export const EDGE_DRAW_CONFIG = {
   enabled: true,
-  /** 모든 세대 — 부부 가로선을 카드 하단에서 아래로 (노드 위치 그대로) */
-  spouseLineOffset: 18,
-  /** 모든 세대 — 부부선~자녀 사이 가로 rail 추가 하강 */
-  railDrop: 8,
+  /** 카드 하단 → 부부 가로선 (0이면 카드 밑변에 붙음) */
+  spouseLineOffset: 0,
+  /** 부부선~자녀 rail 추가 하강 */
+  railDrop: 0,
   trunkGap: 18,
   childGap: 14,
   strokeWidth: 2.5,
@@ -182,13 +182,49 @@ function buildGroups(
   return { groups: Array.from(groupMap.values()), drawnCouples };
 }
 
-/** 부부 가로선(baseY)과 자녀 top 사이 rail — 모든 세대 동일 */
+/** 부부 가로선(baseY)과 자녀 top 사이 rail — 부모 쪽에 가깝게 */
 function coupleRailY(
   baseY: number,
   minChildTop: number,
   cfg: typeof EDGE_DRAW_CONFIG,
 ): number {
-  return Math.round((baseY + minChildTop) / 2 + cfg.railDrop);
+  const span = Math.max(0, minChildTop - baseY);
+  return Math.round(baseY + span * 0.28 + cfg.railDrop);
+}
+
+/** 카드 밑변에 붙는 부부 가로선 Y (선 두께 중심) */
+function coupleBarY(left: PositionedNode, right: PositionedNode, stroke: number): number {
+  const parentBottom = Math.max(bottom(left), bottom(right));
+  return parentBottom + EDGE_DRAW_CONFIG.spouseLineOffset + stroke / 2;
+}
+
+/** 각 배우자 카드 하단 중앙 → 부부 가로선 (떨어져 보이지 않게 카드 안으로 살짝 겹침) */
+function drawCoupleDropStubs(
+  out: React.ReactNode[],
+  key: string,
+  left: PositionedNode,
+  right: PositionedNode,
+  barY: number,
+  color: string,
+  stroke: number,
+): void {
+  const join = stroke / 2;
+  const leftX = cx(left);
+  const rightX = cx(right);
+  const leftTop = bottom(left) - join;
+  const rightTop = bottom(right) - join;
+  out.push(
+    <View
+      key={`c_stub_l_${key}`}
+      style={bar(leftX - stroke / 2, leftTop, stroke, Math.max(stroke, barY - leftTop + join), color, stroke)}
+    />,
+  );
+  out.push(
+    <View
+      key={`c_stub_r_${key}`}
+      style={bar(rightX - stroke / 2, rightTop, stroke, Math.max(stroke, barY - rightTop + join), color, stroke)}
+    />,
+  );
 }
 
 function lineColor(fallbackColor: string | undefined): string {
@@ -215,47 +251,57 @@ function drawCouple(group: CoupleGroup, ctx: Ctx): void {
     .sort((a, b) => cx(a) - cx(b)) as PositionedNode[];
   if (!children.length) return;
 
-  const leftEdge = left.x + left.width;
-  const rightEdge = right.x;
-  const parentBottom = Math.max(bottom(left), bottom(right));
-  const baseY = parentBottom + cfg.spouseLineOffset;
-  const midX = Math.round((left.x + right.x + right.width) / 2);
-
-  const childXs = children.map(cx);
-  const minChildX = Math.min(...childXs);
-  const maxChildX = Math.max(...childXs);
+  const barY = coupleBarY(left, right, stroke);
+  const midX = (cx(left) + cx(right)) / 2;
   const minChildTop = Math.min(...children.map(top));
-  const childGeneration = children[0]?.generation ?? left.generation + 1;
   const parentColor = lineColor(fallbackColor);
   const childColor = lineColor(fallbackColor);
-
   const key = pairKey(group.leftId, group.rightId);
+  const join = stroke / 2;
 
+  // 카드 하단 → 부부선 세로 stub (카드에 붙임)
+  drawCoupleDropStubs(out, key, left, right, barY, parentColor, stroke);
+
+  // 부부 가로선: 두 stub 사이를 이음
+  const stubLeft = Math.min(cx(left), cx(right));
+  const stubRight = Math.max(cx(left), cx(right));
   out.push(
     <View
       key={`c_h_${key}`}
-      style={bar(leftEdge, baseY - stroke / 2, rightEdge - leftEdge, stroke, parentColor, stroke)}
+      style={bar(stubLeft, barY - stroke / 2, stubRight - stubLeft, stroke, parentColor, stroke)}
     />,
   );
 
-  const ry = coupleRailY(baseY, minChildTop, cfg);
-
+  const ry = coupleRailY(barY, minChildTop, cfg);
   out.push(
-    <View key={`c_v_${key}`} style={bar(midX - stroke / 2, baseY, stroke, Math.max(stroke, ry - baseY), parentColor, stroke)} />,
+    <View
+      key={`c_v_${key}`}
+      style={bar(
+        midX - stroke / 2,
+        barY - join,
+        stroke,
+        Math.max(stroke, ry - barY + join * 2),
+        parentColor,
+        stroke,
+      )}
+    />,
   );
 
-  const railLeft = Math.min(midX, minChildX);
-  const railW = Math.max(midX, maxChildX) - railLeft;
+  const childXs = children.map(cx);
+  const railLeft = Math.min(midX, ...childXs);
+  const railW = Math.max(midX, ...childXs) - railLeft;
   out.push(
     <View key={`c_r_${key}`} style={bar(railLeft, ry - stroke / 2, railW, stroke, childColor, stroke)} />,
   );
 
   for (const ch of children) {
     const x = cx(ch);
+    // 자녀 카드 top에 살짝 겹치게
+    const dropH = Math.max(stroke, top(ch) - ry + join + 2);
     out.push(
       <View
         key={`c_ch_${key}_${ch.id}`}
-        style={bar(x - stroke / 2, ry, stroke, top(ch) - ry, childColor, stroke)}
+        style={bar(x - stroke / 2, ry - join, stroke, dropH, childColor, stroke)}
       />,
     );
   }
@@ -273,12 +319,11 @@ function drawSingle(group: SingleGroup, ctx: Ctx): void {
   if (!children.length) return;
 
   const px = cx(parent);
-  const pBot = bottom(parent);
-  const trunkStart = pBot + cfg.spouseLineOffset;
+  const join = stroke / 2;
+  const trunkStart = bottom(parent) - join;
   const childXs = children.map(cx);
   const minChildTop = Math.min(...children.map(top));
-  const childGeneration = children[0]?.generation ?? parent.generation + 1;
-  const ry = coupleRailY(trunkStart, minChildTop, cfg);
+  const ry = coupleRailY(bottom(parent) + cfg.spouseLineOffset + stroke / 2, minChildTop, cfg);
   const pid = group.parentId;
   const parentColor = lineColor(fallbackColor);
   const childColor = lineColor(fallbackColor);
@@ -286,7 +331,14 @@ function drawSingle(group: SingleGroup, ctx: Ctx): void {
   out.push(
     <View
       key={`s_v_${pid}`}
-      style={bar(px - stroke / 2, trunkStart, stroke, Math.max(stroke, ry - trunkStart), parentColor, stroke)}
+      style={bar(
+        px - stroke / 2,
+        trunkStart,
+        stroke,
+        Math.max(stroke, ry - trunkStart + join),
+        parentColor,
+        stroke,
+      )}
     />,
   );
 
@@ -298,10 +350,11 @@ function drawSingle(group: SingleGroup, ctx: Ctx): void {
 
   for (const ch of children) {
     const x = cx(ch);
+    const dropH = Math.max(stroke, top(ch) - ry + join + 2);
     out.push(
       <View
         key={`s_ch_${pid}_${ch.id}`}
-        style={bar(x - stroke / 2, ry, stroke, top(ch) - ry, childColor, stroke)}
+        style={bar(x - stroke / 2, ry - join, stroke, dropH, childColor, stroke)}
       />,
     );
   }
@@ -326,15 +379,16 @@ function drawSpouseOnly(
 
     const left = cx(a) <= cx(b) ? a : b;
     const right = cx(a) <= cx(b) ? b : a;
-    const leftEdge = left.x + left.width;
-    const rightEdge = right.x;
-    const y = Math.max(bottom(left), bottom(right)) + cfg.spouseLineOffset;
+    const barY = coupleBarY(left, right, stroke);
     const spouseColor = lineColor(fallbackColor);
 
+    drawCoupleDropStubs(out, `sp_${idx}_${key}`, left, right, barY, spouseColor, stroke);
+    const stubLeft = Math.min(cx(left), cx(right));
+    const stubRight = Math.max(cx(left), cx(right));
     out.push(
       <View
         key={`sp_${idx}_${key}`}
-        style={bar(leftEdge, y - stroke / 2, rightEdge - leftEdge, stroke, spouseColor, stroke)}
+        style={bar(stubLeft, barY - stroke / 2, stubRight - stubLeft, stroke, spouseColor, stroke)}
       />,
     );
   });

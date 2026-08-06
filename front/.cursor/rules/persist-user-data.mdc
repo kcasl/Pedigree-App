@@ -1,0 +1,32 @@
+---
+description: 족보 리팩터/구조 개선 시 사진·사용자 입력 데이터 유지 정책
+alwaysApply: true
+---
+
+# 사용자 데이터 유지 정책 (Pedigree App)
+
+**코드 강제:** `src/utils/personPersist.ts` — 모든 병합·동기화는 이 모듈 함수를 경유한다.
+
+## 보호 필드
+
+`photoUri`, `name`, `phone`, `birthDate`, `note`, `gender`(unknown 제외)
+
+## 사용처
+
+| 함수 | 용도 |
+|------|------|
+| `mergePersonWithTemplate` | `reconcileViewTemplate` |
+| `mergeUserFieldsFromSource` | `viewSync` 뷰 간 복사 |
+| `mergePedigreeStoresPreferLocalUserData` | 로컬 + 서버 store 병합 |
+| `mergeLegacyPersonIntoSlot` | v1 마이그레이션 |
+
+## 금지
+
+- 로드/동기화 실패 시 `createDefaultStore()`로 **통째 교체**
+- `{ ...existing, ...template }` 순서로 사용자 필드 덮어쓰기
+- 서버 pull 시 로컬 `photoUri` 무시
+
+## 변경 전 체크
+
+- [ ] `personPersist` 재사용 또는 동일 null-coalesce 규칙
+- [ ] 재시작·동기화 후 사진 유지 수동 확인

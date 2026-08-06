@@ -1,0 +1,6 @@
+{
+  "line": 1084,
+  "new_string": "  generation,\n  referenceDate,\n  activeView,\n}: Props) {\n  return (\n    <View style={style}>\n      <PersonNodeCard\n        label={label}\n        ordinalLabel={ordinalLabel}\n        person={person}\n        onPress={onPress}\n        highlighted={highlighted}\n        generation={generation}\n        width={width}\n        height={height}\n        referenceDate={referenceDate}\n        activeView={activeView}\n      />",
+  "old_string": "  generation,\n  referenceDate,\n}: Props) {\n  return (\n    <View style={style}>\n      <PersonNodeCard\n        label={label}\n        ordinalLabel={ordinalLabel}\n        person={person}\n        onPress={onPress}\n        highlighted={highlighted}\n        generation={generation}\n        width={width}\n        height={height}\n        referenceDate={referenceDate}\n      />",
+  "path": "C:\\Project\\Pedigree_App\\front\\src\\components\\DraggablePersonNode.tsx"
+}

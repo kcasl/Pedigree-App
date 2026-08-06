@@ -9,6 +9,7 @@ import {
   reconcileStore,
   slotIdsForView,
 } from '../utils/standardTemplate';
+import { mergePedigreeStoresPreferLocalUserData } from '../utils/personPersist';
 import { syncAllViews } from '../utils/viewSync';
 
 export const PEDIGREE_STORAGE_KEY = 'pedigree.store.local.v2';
@@ -32,10 +33,13 @@ function parseStore(raw: string | null): PedigreeStore | null {
     if (store.version !== 2 || !store.views) return null;
 
     if (!store.views.self) {
-      store.views.self = createViewTemplate('self');
-      if (!store.views.paternal) store.views.paternal = createViewTemplate('paternal');
-      if (!store.views.maternal) store.views.maternal = createViewTemplate('maternal');
-      if (!store.views.spouse) store.views.spouse = createViewTemplate('spouse');
+      const partial = store.views as Partial<typeof store.views>;
+      store.views = {
+        self: partial.self ?? createViewTemplate('self'),
+        paternal: partial.paternal ?? createViewTemplate('paternal'),
+        maternal: partial.maternal ?? createViewTemplate('maternal'),
+        spouse: partial.spouse ?? createViewTemplate('spouse'),
+      };
       if (!store.activeView || store.activeView === ('paternal' as ActiveView)) {
         store.activeView = 'self';
       }
@@ -93,11 +97,11 @@ export async function savePedigreeStore(store: PedigreeStore): Promise<void> {
   await AsyncStorage.setItem(PEDIGREE_STORAGE_KEY, JSON.stringify(store));
 }
 
-/** @deprecated */
+/** @deprecated — v1 API 호환. 기존 paternal 데이터는 유지하고 나머지 뷰만 템플릿으로 채움 */
 export async function savePedigreePeople(people: Record<PersonId, Person>): Promise<void> {
-  const store = createDefaultStore();
-  store.views.paternal = people;
-  await savePedigreeStore(store);
+  const base = createDefaultStore();
+  base.views.paternal = { ...base.views.paternal, ...people };
+  await savePedigreeStore(reconcileStore(syncAllViews(base)));
 }
 
 export async function clearPedigreePeople(): Promise<void> {

@@ -1,6 +1,8 @@
 /** 앱 전역 UI 토큰 — 색·굵기·그림자 */
 export const ui = {
   generationPalette: ['#D6E8FF', '#DDD0FF', '#F8C8E8', '#B8EBD0'] as const,
+  /** 증조할아버지·할머니 줄(및 그 형제) 노드 배경 */
+  greatAncestorSurface: '#E6E9EF',
   color: {
     text: '#0b1220',
     textSecondary: '#3f4f63',
@@ -26,8 +28,9 @@ export const ui = {
     const idx = ((gen % palette.length) + palette.length) % palette.length;
     return palette[idx];
   },
-  /** 세대(가로줄)별 카드 배경 — 위로 갈수록 밝음 */
+  /** 세대(가로줄)별 카드 배경 — 증조 줄은 파스텔 회색 */
   generationSurface(gen: number): string {
+    if (gen <= -3) return this.greatAncestorSurface;
     return this.generationLine(gen);
   },
   weight: {

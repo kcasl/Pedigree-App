@@ -1,0 +1,140 @@
+[
+  {
+    "line": 1142,
+    "new_string": "      card: {\n        borderRadius: rs(14),\n        padding: rs(12),\n        height,\n        minHeight: height,\n        maxHeight: height,\n      },",
+    "old_string": "      card: {\n        borderRadius: rs(14),\n        padding: rs(12),\n        minHeight: height,\n      },",
+    "path": "C:\\Project\\Pedigree_App\\front\\src\\components\\PersonNodeCard.tsx"
+  },
+  {
+    "line": 1142,
+    "new_string": "        { backgroundColor: rowBg, width, maxWidth: width, minWidth: width, overflow: 'hidden' },",
+    "old_string": "        { backgroundColor: rowBg, width, maxWidth: width, minWidth: width },",
+    "path": "C:\\Project\\Pedigree_App\\front\\src\\components\\PersonNodeCard.tsx"
+  },
+  {
+    "line": 1152,
+    "new_string": "const NODE_TEXT = { allowFontScaling: false, maxFontSizeMultiplier: 1 } as const;",
+    "old_string": "const BASE_CARD_WIDTH = STANDARD_LAYOUT_DEFAULTS.cardWidth;",
+    "path": "C:\\Project\\Pedigree_App\\front\\src\\components\\PersonNodeCard.tsx"
+  },
+  {
+    "line": 1152,
+    "new_string": "const BASE_CARD_WIDTH = STANDARD_LAYOUT_DEFAULTS.cardWidth;\nconst BASE_CARD_HEIGHT = STANDARD_LAYOUT_DEFAULTS.cardHeight;",
+    "old_string": "const BASE_CARD_HEIGHT = STANDARD_LAYOUT_DEFAULTS.cardHeight;",
+    "path": "C:\\Project\\Pedigree_App\\front\\src\\components\\PersonNodeCard.tsx"
+  },
+  {
+    "line": 1152,
+    "new_string": "        <Text {...NODE_TEXT} style={[styles.badge, scaled.badge]}>{label}</Text>\n        {ordinalLabel ? (\n          <Text {...NODE_TEXT} style={[styles.ordinalBadge, scaled.ordinalBadge]}>{ordinalLabel}</Text>\n        ) : null}",
+    "old_string": "        <Text style={[styles.badge, scaled.badge]}>{label}</Text>\n        {ordinalLabel ? (\n          <Text style={[styles.ordinalBadge, scaled.ordinalBadge]}>{ordinalLabel}</Text>\n        ) : null}",
+    "path": "C:\\Project\\Pedigree_App\\front\\src\\components\\PersonNodeCard.tsx"
+  },
+  {
+    "line": 1152,
+    "new_string": "            <Text {...NODE_TEXT} style={[styles.avatarFallbackText, scaled.avatarFallbackText]}>+</Text>",
+    "old_string": "            <Text style={[styles.avatarFallbackText, scaled.avatarFallbackText]}>+</Text>",
+    "path": "C:\\Project\\Pedigree_App\\front\\src\\components\\PersonNodeCard.tsx"
+  },
+  {
+    "line": 1152,
+    "new_string": "        <Text {...NODE_TEXT} style={[styles.name, scaled.name]} numberOfLines={1}>\n          {displayName}\n        </Text>\n        {person?.phone ? (\n          <Text {...NODE_TEXT} style={[styles.sub, scaled.sub]} numberOfLines={1}>\n            {formatPhoneForNode(person.phone)}\n          </Text>\n        ) : (\n          <Text {...NODE_TEXT} style={[styles.sub, scaled.sub]} numberOfLines={1}>\n            {person ? ' ' : '탭해서 등록'}\n          </Text>\n        )}",
+    "old_string": "        <Text style={[styles.name, scaled.name]} numberOfLines={1}>\n          {displayName}\n        </Text>\n        {person?.phone ? (\n          <Text style={[styles.sub, scaled.sub]} numberOfLines={1}>\n            {formatPhoneForNode(person.phone)}\n          </Text>\n        ) : (\n          <Text style={[styles.sub, scaled.sub]} numberOfLines={1}>\n            {person ? ' ' : '탭해서 등록'}\n          </Text>\n        )}",
+    "path": "C:\\Project\\Pedigree_App\\front\\src\\components\\PersonNodeCard.tsx"
+  },
+  {
+    "line": 1165,
+    "new_string": "      card: {\n        borderRadius: rs(14),\n        padding: rs(12),\n        minHeight: height,\n      },",
+    "old_string": "      card: {\n        borderRadius: rs(14),\n        padding: rs(12),\n        height,\n        minHeight: height,\n        maxHeight: height,\n      },",
+    "path": "C:\\Project\\Pedigree_App\\front\\src\\components\\PersonNodeCard.tsx"
+  },
+  {
+    "line": 1165,
+    "new_string": "        { backgroundColor: rowBg, width, maxWidth: width, minWidth: width },",
+    "old_string": "        { backgroundColor: rowBg, width, maxWidth: width, minWidth: width, overflow: 'hidden' },",
+    "path": "C:\\Project\\Pedigree_App\\front\\src\\components\\PersonNodeCard.tsx"
+  },
+  {
+    "line": 1172,
+    "new_string": "import { internationalAge } from '../utils/date';",
+    "old_string": "import { formatNameWithAge } from '../utils/date';",
+    "path": "C:\\Project\\Pedigree_App\\front\\src\\components\\PersonNodeCard.tsx"
+  },
+  {
+    "line": 1172,
+    "new_string": "  const today = referenceDate ?? new Date();\n  const personName = useMemo(() => {\n    if (!person) return '추가';\n    return resolveNodeDisplayName(activeView, person.id, person.name);\n  }, [person, activeView]);\n  const personAge = useMemo(() => {\n    if (!person?.birthDate) return null;\n    return internationalAge(person.birthDate, today);\n  }, [person, today]);",
+    "old_string": "  const today = referenceDate ?? new Date();\n  const displayName = useMemo(() => {\n    if (!person) return '추가';\n    const normalizedName = resolveNodeDisplayName(activeView, person.id, person.name);\n    return formatNameWithAge(normalizedName, person.birthDate, today);\n  }, [person, today, activeView]);",
+    "path": "C:\\Project\\Pedigree_App\\front\\src\\components\\PersonNodeCard.tsx"
+  },
+  {
+    "line": 1172,
+    "new_string": "      content: { marginTop: rs(8), gap: rs(6) },\n      textBlock: { gap: rs(2), width: '100%' as const },\n      avatar: {\n        width: rs(72),\n        height: rs(72),\n        borderRadius: rs(36),\n      },\n      avatarFallback: {\n        width: rs(72),\n        height: rs(72),\n        borderRadius: rs(36),\n      },",
+    "old_string": "      content: { marginTop: rs(10), gap: rs(8) },\n      avatar: {\n        width: rs(78),\n        height: rs(78),\n        borderRadius: rs(39),\n      },\n      avatarFallback: {\n        width: rs(78),\n        height: rs(78),\n        borderRadius: rs(39),\n      },",
+    "path": "C:\\Project\\Pedigree_App\\front\\src\\components\\PersonNodeCard.tsx"
+  },
+  {
+    "line": 1172,
+    "new_string": "      avatarFallbackText: { fontSize: rs(24) },\n      name: { fontSize: rs(15), lineHeight: rs(19) },\n      age: { fontSize: rs(12), lineHeight: rs(16) },\n      sub: { fontSize: rs(11), lineHeight: rs(14) },",
+    "old_string": "      avatarFallbackText: { fontSize: rs(24) },\n      name: { fontSize: rs(16) },\n      sub: { fontSize: rs(12) },",
+    "path": "C:\\Project\\Pedigree_App\\front\\src\\components\\PersonNodeCard.tsx"
+  },
+  {
+    "line": 1172,
+    "new_string": "        <View style={[styles.textBlock, scaled.textBlock]}>\n          <Text\n            {...NODE_TEXT}\n            style={[styles.name, scaled.name]}\n            numberOfLines={2}\n            textAlign=\"center\"\n          >\n            {personName}\n          </Text>\n          {person && personAge != null ? (\n            <Text {...NODE_TEXT} style={[styles.age, scaled.age]} textAlign=\"center\">\n              ({personAge})\n            </Text>\n          ) : null}\n          <Text {...NODE_TEXT} style={[styles.sub, scaled.sub]} numberOfLines={1} textAlign=\"center\">\n            {person?.phone\n              ? formatPhoneForNode(person.phone)\n              : person\n                ? ' '\n                : '탭해서 등록'}\n          </Text>\n        </View>",
+    "old_string": "        <Text {...NODE_TEXT} style={[styles.name, scaled.name]} numberOfLines={1}>\n          {displayName}\n        </Text>\n        {person?.phone ? (\n          <Text {...NODE_TEXT} style={[styles.sub, scaled.sub]} numberOfLines={1}>\n            {formatPhoneForNode(person.phone)}\n          </Text>\n        ) : (\n          <Text {...NODE_TEXT} style={[styles.sub, scaled.sub]} numberOfLines={1}>\n            {person ? ' ' : '탭해서 등록'}\n          </Text>\n        )}",
+    "path": "C:\\Project\\Pedigree_App\\front\\src\\components\\PersonNodeCard.tsx"
+  },
+  {
+    "line": 1172,
+    "new_string": "  content: {\n    marginTop: 10,\n    alignItems: 'center',\n    gap: 6,\n  },\n  textBlock: {\n    width: '100%',\n    alignItems: 'center',\n    gap: 2,\n  },",
+    "old_string": "  content: {\n    marginTop: 10,\n    alignItems: 'center',\n    gap: 8,\n  },",
+    "path": "C:\\Project\\Pedigree_App\\front\\src\\components\\PersonNodeCard.tsx"
+  },
+  {
+    "line": 1172,
+    "new_string": "  name: {\n    color: ui.color.text,\n    fontSize: 16,\n    fontWeight: ui.weight.heading,\n    textAlign: 'center',\n    width: '100%',\n  },\n  age: {\n    color: ui.color.textSecondary,\n    fontSize: 12,\n    fontWeight: ui.weight.body,\n    textAlign: 'center',\n    width: '100%',\n  },\n  sub: {\n    color: ui.color.textSecondary,\n    fontSize: 12,\n    fontWeight: ui.weight.body,\n    textAlign: 'center',\n    width: '100%',\n  },",
+    "old_string": "  name: {\n    color: ui.color.text,\n    fontSize: 16,\n    fontWeight: ui.weight.heading,\n  },\n  sub: {\n    color: ui.color.textSecondary,\n    fontSize: 12,\n    fontWeight: ui.weight.body,\n  },",
+    "path": "C:\\Project\\Pedigree_App\\front\\src\\components\\PersonNodeCard.tsx"
+  },
+  {
+    "line": 1185,
+    "new_string": "import { PERSON_NODE_METRICS, STANDARD_LAYOUT_DEFAULTS } from '../utils/standardLayout';",
+    "old_string": "import { STANDARD_LAYOUT_DEFAULTS } from '../utils/standardLayout';",
+    "path": "C:\\Project\\Pedigree_App\\front\\src\\components\\PersonNodeCard.tsx"
+  },
+  {
+    "line": 1185,
+    "new_string": "  const cardScale = width / BASE_CARD_WIDTH;\n  const rs = (size: number) => scaleSize(size, cardScale);\n  const m = PERSON_NODE_METRICS;\n  const scaled = useMemo(\n    () => ({\n      card: {\n        borderRadius: rs(14),\n        padding: rs(m.padding),\n        height,\n        minHeight: height,\n        maxHeight: height,\n      },\n      header: { gap: rs(6), minHeight: rs(m.headerHeight) },\n      badge: {\n        fontSize: rs(12),\n        paddingHorizontal: rs(8),\n        paddingVertical: rs(4),\n      },\n      ordinalBadge: {\n        fontSize: rs(11),\n        paddingHorizontal: rs(6),\n        paddingVertical: rs(3),\n      },\n      content: { marginTop: rs(m.contentMarginTop), gap: rs(m.contentGap) },\n      textBlock: { gap: rs(m.textGap), width: '100%' as const },\n      avatar: {\n        width: rs(m.avatarSize),\n        height: rs(m.avatarSize),\n        borderRadius: rs(m.avatarSize / 2),\n      },\n      avatarFallback: {\n        width: rs(m.avatarSize),\n        height: rs(m.avatarSize),\n        borderRadius: rs(m.avatarSize / 2),\n      },",
+    "old_string": "  const cardScale = width / BASE_CARD_WIDTH;\n  const rs = (size: number) => scaleSize(size, cardScale);\n  const scaled = useMemo(\n    () => ({\n      card: {\n        borderRadius: rs(14),\n        padding: rs(12),\n        minHeight: height,\n      },\n      header: { gap: rs(6) },\n      badge: {\n        fontSize: rs(12),\n        paddingHorizontal: rs(8),\n        paddingVertical: rs(4),\n      },\n      ordinalBadge: {\n        fontSize: rs(11),\n        paddingHorizontal: rs(6),\n        paddingVertical: rs(3),\n      },\n      content: { marginTop: rs(8), gap: rs(6) },\n      textBlock: { gap: rs(2), width: '100%' as const },\n      avatar: {\n        width: rs(72),\n        height: rs(72),\n        borderRadius: rs(36),\n      },\n      avatarFallback: {\n        width: rs(72),\n        height: rs(72),\n        borderRadius: rs(36),\n      },",
+    "path": "C:\\Project\\Pedigree_App\\front\\src\\components\\PersonNodeCard.tsx"
+  },
+  {
+    "line": 1185,
+    "new_string": "      name: { fontSize: rs(15), lineHeight: rs(m.nameLineHeight) },\n      age: { fontSize: rs(12), lineHeight: rs(m.ageLineHeight) },\n      sub: { fontSize: rs(11), lineHeight: rs(m.phoneLineHeight) },\n    }),\n    [cardScale, height],\n  );",
+    "old_string": "      name: { fontSize: rs(15), lineHeight: rs(19) },\n      age: { fontSize: rs(12), lineHeight: rs(16) },\n      sub: { fontSize: rs(11), lineHeight: rs(14) },\n    }),\n    [cardScale, height],\n  );",
+    "path": "C:\\Project\\Pedigree_App\\front\\src\\components\\PersonNodeCard.tsx"
+  },
+  {
+    "line": 1185,
+    "new_string": "        { backgroundColor: rowBg, width, maxWidth: width, minWidth: width, overflow: 'hidden' },",
+    "old_string": "        { backgroundColor: rowBg, width, maxWidth: width, minWidth: width },",
+    "path": "C:\\Project\\Pedigree_App\\front\\src\\components\\PersonNodeCard.tsx"
+  },
+  {
+    "line": 1185,
+    "new_string": "          {person && personAge != null ? (\n            <Text {...NODE_TEXT} style={[styles.age, scaled.age]} textAlign=\"center\">\n              ({personAge})\n            </Text>\n          ) : person ? (\n            <Text {...NODE_TEXT} style={[styles.age, scaled.age, styles.agePlaceholder]} textAlign=\"center\">\n              {' '}\n            </Text>\n          ) : null}",
+    "old_string": "          {person && personAge != null ? (\n            <Text {...NODE_TEXT} style={[styles.age, scaled.age]} textAlign=\"center\">\n              ({personAge})\n            </Text>\n          ) : null}",
+    "path": "C:\\Project\\Pedigree_App\\front\\src\\components\\PersonNodeCard.tsx"
+  },
+  {
+    "line": 1185,
+    "new_string": "  age: {\n    color: ui.color.textSecondary,\n    fontSize: 12,\n    fontWeight: ui.weight.body,\n    textAlign: 'center',\n    width: '100%',\n  },\n  agePlaceholder: {\n    opacity: 0,\n  },",
+    "old_string": "  age: {\n    color: ui.color.textSecondary,\n    fontSize: 12,\n    fontWeight: ui.weight.body,\n    textAlign: 'center',\n    width: '100%',\n  },",
+    "path": "C:\\Project\\Pedigree_App\\front\\src\\components\\PersonNodeCard.tsx"
+  },
+  {
+    "line": 1190,
+    "new_string": "          <Text\n            {...NODE_TEXT}\n            style={[styles.name, scaled.name]}\n            numberOfLines={2}\n          >\n            {personName}\n          </Text>\n          {person && personAge != null ? (\n            <Text {...NODE_TEXT} style={[styles.age, scaled.age]}>\n              ({personAge})\n            </Text>\n          ) : person ? (\n            <Text {...NODE_TEXT} style={[styles.age, scaled.age, styles.agePlaceholder]}>\n              {' '}\n            </Text>\n          ) : null}\n          <Text {...NODE_TEXT} style={[styles.sub, scaled.sub]} numberOfLines={1}>",
+    "old_string": "          <Text\n            {...NODE_TEXT}\n            style={[styles.name, scaled.name]}\n            numberOfLines={2}\n            textAlign=\"center\"\n          >\n            {personName}\n          </Text>\n          {person && personAge != null ? (\n            <Text {...NODE_TEXT} style={[styles.age, scaled.age]} textAlign=\"center\">\n              ({personAge})\n            </Text>\n          ) : person ? (\n            <Text {...NODE_TEXT} style={[styles.age, scaled.age, styles.agePlaceholder]} textAlign=\"center\">\n              {' '}\n            </Text>\n          ) : null}\n          <Text {...NODE_TEXT} style={[styles.sub, scaled.sub]} numberOfLines={1} textAlign=\"center\">",
+    "path": "C:\\Project\\Pedigree_App\\front\\src\\components\\PersonNodeCard.tsx"
+  }
+]

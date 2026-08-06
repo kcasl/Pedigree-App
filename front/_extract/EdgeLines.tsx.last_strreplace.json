@@ -1,0 +1,6 @@
+{
+  "line": 1203,
+  "new_string": "  out.push(\n    <View\n      key={`s_v_${pid}`}\n      style={verticalBar(px, lineCenterY, ry + join, color, stroke)}\n    />,\n  );\n  drawRailBranch(out, `s_${pid}`, px, ry, children, stroke, color);\n}",
+  "old_string": "  out.push(\n    <View\n      key={`s_v_${pid}`}\n      style={verticalBar(px, lineCenterY, ry + join, color, stroke)}\n    />,\n  );\n  drawChildConnect(out, `s_${pid}`, px, ry, children, stroke, color);\n}",
+  "path": "C:\\Project\\Pedigree_App\\front\\src\\components\\EdgeLines.tsx"
+}

@@ -1,0 +1,6 @@
+EdgeLines.tsx: last str at line 1203
+standardLayout.ts: last str at line 1185
+PersonNodeCard.tsx: last str at line 1190
+DraggablePersonNode.tsx: last str at line 1084
+standardTemplate.ts: last str at line 1084
+PedigreeScreen.tsx: last str at line 1200
