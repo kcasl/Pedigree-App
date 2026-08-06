@@ -128,13 +128,52 @@ def ensure_shared_pedigree_schema() -> None:
 
 @app.on_event("startup")
 def on_startup() -> None:
+    import time
+
+    from sqlalchemy import text
+
+    # MySQL이 API보다 늦게 뜨는 경우 대비
+    last_err: Exception | None = None
+    for attempt in range(30):
+        try:
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            last_err = None
+            break
+        except Exception as exc:  # noqa: BLE001
+            last_err = exc
+            time.sleep(1)
+    if last_err is not None:
+        raise RuntimeError(f"MySQL unavailable at startup: {last_err}") from last_err
+
     Base.metadata.create_all(bind=engine)
     ensure_shared_pedigree_schema()
 
 
 @app.get("/health")
 def health() -> dict[str, str]:
+    """프로세스 생존만 확인(DB 미사용). DB는 /health/db 사용."""
     return {"status": "ok"}
+
+
+@app.get("/health/db")
+def health_db() -> dict[str, str]:
+    """앱과 동일하게 API→MySQL(127.0.0.1) 연결 확인."""
+    from sqlalchemy import text
+
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        return {
+            "status": "ok",
+            "db_host": settings.db_host,
+            "db_name": settings.db_name,
+        }
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=503,
+            detail=f"db unavailable ({settings.db_host}:{settings.db_port}): {exc}",
+        ) from exc
 
 
 def extract_bearer_token(authorization: str | None) -> str | None:
