@@ -22,7 +22,7 @@ from .crud import (
     verify_google_access_token,
     verify_google_identity,
 )
-from .database import Base, engine, get_db
+from .database import Base, SessionLocal, engine, get_db
 from .schemas import (
     GoogleLoginRequest,
     ShareCreateRequest,
@@ -345,35 +345,43 @@ def patch_pedigree(
 
 
 @app.post("/v1/share/pedigree", response_model=ShareCreateResponse)
-def create_pedigree_share(
-    payload: ShareCreateRequest,
-    db: Session = Depends(get_db),
-) -> ShareCreateResponse:
+def create_pedigree_share(payload: ShareCreateRequest) -> ShareCreateResponse:
     """공개 족보 공유 생성 — 로그인 불필요. `{google_sub}` 경로와 충돌 방지를 위해 /v1/share 사용."""
+    import time
+
     store = payload.store
     if not isinstance(store, dict) or "views" not in store:
         raise HTTPException(status_code=400, detail="invalid store payload")
 
-    try:
-        ensure_shared_pedigree_schema()
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=500, detail=f"share schema error: {exc}") from exc
-
-    key = generate_share_key(db)
-    try:
-        create_shared_pedigree(db, key, store, device_id=payload.device_id)
-    except Exception as exc:  # noqa: BLE001
-        # device_id 미적용 DB 등 — 스키마 보정 후 1회 재시도
-        db.rollback()
+    last_err: Exception | None = None
+    for attempt in range(5):
+        session = SessionLocal()
         try:
-            ensure_shared_pedigree_schema()
-            create_shared_pedigree(db, key, store, device_id=payload.device_id)
-        except Exception as retry_exc:  # noqa: BLE001
-            raise HTTPException(
-                status_code=500,
-                detail=f"share create failed: {retry_exc}",
-            ) from retry_exc
-    return ShareCreateResponse(key=key)
+            key = generate_share_key(session)
+            create_shared_pedigree(session, key, store, device_id=payload.device_id)
+            return ShareCreateResponse(key=key)
+        except Exception as exc:  # noqa: BLE001
+            last_err = exc
+            try:
+                session.rollback()
+            except Exception:  # noqa: BLE001
+                pass
+            # 대용량 업로드 직중 MySQL이 재시작된 경우 풀 리셋 후 재시도
+            try:
+                engine.dispose()
+            except Exception:  # noqa: BLE001
+                pass
+            time.sleep(0.8 * (attempt + 1))
+        finally:
+            try:
+                session.close()
+            except Exception:  # noqa: BLE001
+                pass
+
+    raise HTTPException(
+        status_code=500,
+        detail=f"share create failed after retries: {last_err}",
+    )
 
 
 @app.get("/v1/share/pedigree/{share_key}", response_model=ShareGetResponse)

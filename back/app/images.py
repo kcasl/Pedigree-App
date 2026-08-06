@@ -25,30 +25,38 @@ def compress_person_photo(image_bytes: bytes) -> tuple[bytes, str, str]:
     Returns: (file_bytes, extension_without_dot, media_type)
     WebP 우선, 실패 시 JPEG.
     """
+    image: Image.Image | None = None
     try:
-        image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        image = Image.open(io.BytesIO(image_bytes))
+        image = image.convert("RGB")
+        image.thumbnail((PHOTO_MAX_EDGE, PHOTO_MAX_EDGE))
+
+        webp_buf = io.BytesIO()
+        try:
+            # method=4: 메모리/CPU 부담을 낮춰 소형 인스턴스 OOM 완화
+            image.save(
+                webp_buf,
+                format="WEBP",
+                quality=WEBP_QUALITY,
+                method=4,
+            )
+            data = webp_buf.getvalue()
+            if data:
+                return data, "webp", "image/webp"
+        except Exception:  # noqa: BLE001
+            pass
+
+        jpeg_buf = io.BytesIO()
+        image.save(jpeg_buf, format="JPEG", optimize=True, quality=JPEG_QUALITY)
+        return jpeg_buf.getvalue(), "jpg", "image/jpeg"
     except Exception as exc:  # noqa: BLE001
         raise ValueError("invalid image format") from exc
-
-    image.thumbnail((PHOTO_MAX_EDGE, PHOTO_MAX_EDGE))
-
-    webp_buf = io.BytesIO()
-    try:
-        image.save(
-            webp_buf,
-            format="WEBP",
-            quality=WEBP_QUALITY,
-            method=6,
-        )
-        data = webp_buf.getvalue()
-        if data:
-            return data, "webp", "image/webp"
-    except Exception:  # noqa: BLE001
-        pass
-
-    jpeg_buf = io.BytesIO()
-    image.save(jpeg_buf, format="JPEG", optimize=True, quality=JPEG_QUALITY)
-    return jpeg_buf.getvalue(), "jpg", "image/jpeg"
+    finally:
+        if image is not None:
+            try:
+                image.close()
+            except Exception:  # noqa: BLE001
+                pass
 
 
 def build_upload_filename(prefix: str, ext: str) -> str:
