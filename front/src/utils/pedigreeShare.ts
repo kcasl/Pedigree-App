@@ -55,6 +55,7 @@ export async function uploadSharePhoto(uri: string): Promise<string> {
 
 async function rewritePhotosInPeople(
   people: Record<PersonId, Person>,
+  uploadedByLocalUri: Map<string, string>,
 ): Promise<Record<PersonId, Person>> {
   const out: Record<PersonId, Person> = {};
   for (const [id, person] of Object.entries(people)) {
@@ -62,8 +63,15 @@ async function rewritePhotosInPeople(
       out[id] = person;
       continue;
     }
+    const localUri = person.photoUri;
     try {
-      const url = await uploadSharePhoto(person.photoUri);
+      const cached = uploadedByLocalUri.get(localUri);
+      if (cached) {
+        out[id] = { ...person, photoUri: cached };
+        continue;
+      }
+      const url = await uploadSharePhoto(localUri);
+      uploadedByLocalUri.set(localUri, url);
       out[id] = { ...person, photoUri: url };
     } catch {
       // 사진 실패 시에도 나머지 정보는 공유
@@ -74,9 +82,12 @@ async function rewritePhotosInPeople(
 }
 
 export async function packageStoreForShare(store: PedigreeStore): Promise<PedigreeStore> {
+  // 4개 뷰에 같은 사진이 중복되므로 URI당 1회만 업로드 (서버 OOM/MySQL 다운 방지)
+  const uploadedByLocalUri = new Map<string, string>();
   const views = {} as PedigreeStore['views'];
+  // self 먼저 — 실제 사진이 가장 많음
   for (const view of ALL_VIEWS) {
-    views[view] = await rewritePhotosInPeople(store.views[view] ?? {});
+    views[view] = await rewritePhotosInPeople(store.views[view] ?? {}, uploadedByLocalUri);
   }
   return {
     version: 2,
@@ -98,20 +109,39 @@ export async function exportPedigreeShare(params: {
   const packaged = await packageStoreForShare(rebased);
   const deviceId = await getShareDeviceId();
 
-  const res = await fetch(`${API_BASE_URL}/v1/share/pedigree`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ store: packaged, device_id: deviceId }),
-  });
+  const shareUrl = `${API_BASE_URL}/v1/share/pedigree`;
+  const body = JSON.stringify({ store: packaged, device_id: deviceId });
 
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '');
-    throw new Error(detail || '족보 내보내기에 실패했습니다.');
+  let lastErr = '족보 내보내기에 실패했습니다.';
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    if (attempt > 0) {
+      await new Promise(r => setTimeout(r, 800 * attempt));
+    }
+    let res: Response;
+    try {
+      res = await fetch(shareUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+      });
+    } catch (e) {
+      lastErr = `네트워크 실패\n${shareUrl}\n${e instanceof Error ? e.message : String(e)}`;
+      continue;
+    }
+
+    if (res.ok) {
+      const data = (await res.json()) as { key?: string };
+      if (!data.key) throw new Error('공유 키를 받지 못했습니다.');
+      return data.key;
+    }
+
+    const detail = (await res.text().catch(() => '')).slice(0, 400);
+    lastErr = `서버 오류 ${res.status}\n${shareUrl}\n${detail || '족보 내보내기에 실패했습니다.'}`;
+    // MySQL 순간 다운 등 5xx만 재시도
+    if (res.status < 500) break;
   }
 
-  const data = (await res.json()) as { key?: string };
-  if (!data.key) throw new Error('공유 키를 받지 못했습니다.');
-  return data.key;
+  throw new Error(lastErr);
 }
 
 export async function fetchPedigreeShare(key: string): Promise<PedigreeStore> {

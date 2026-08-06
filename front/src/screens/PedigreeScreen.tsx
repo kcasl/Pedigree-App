@@ -967,10 +967,12 @@ export function PedigreeScreen({
       });
       setExportedKey(key);
     } catch (e) {
-      Alert.alert(
-        '내보내기 실패',
-        e instanceof Error ? e.message : '족보 내보내기에 실패했습니다.',
-      );
+      const msg = e instanceof Error ? e.message : '족보 내보내기에 실패했습니다.';
+      Alert.alert('내보내기 실패', msg);
+      if (__DEV__) {
+        // eslint-disable-next-line no-console
+        console.warn('[exportPedigreeShare]', msg);
+      }
     } finally {
       setExportBusy(false);
     }
