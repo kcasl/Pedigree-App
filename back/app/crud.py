@@ -143,12 +143,70 @@ def get_shared_pedigree(db: Session, share_key: str) -> SharedPedigree | None:
     )
 
 
+def _collect_store_photo_uris(store_json: dict | None) -> set[str]:
+    from .images import collect_photo_uris
+
+    urls: set[str] = set()
+    if not isinstance(store_json, dict):
+        return urls
+    views = store_json.get("views")
+    if not isinstance(views, dict):
+        return urls
+    for people in views.values():
+        if isinstance(people, dict):
+            urls |= collect_photo_uris(people)
+    return urls
+
+
+def delete_shared_pedigrees_for_device(
+    db: Session,
+    device_id: str,
+    keep_photo_uris: set[str] | None = None,
+) -> None:
+    """같은 기기의 이전 공유 행 + (새 공유에서 안 쓰는) 사진 파일을 삭제한다."""
+    from .images import delete_local_upload
+
+    trimmed = (device_id or "").strip()
+    if not trimmed:
+        return
+
+    rows = (
+        db.query(SharedPedigree)
+        .filter(SharedPedigree.device_id == trimmed)
+        .all()
+    )
+    photo_urls: set[str] = set()
+    for row in rows:
+        photo_urls |= _collect_store_photo_uris(
+            row.store_json if isinstance(row.store_json, dict) else None
+        )
+        db.delete(row)
+    db.commit()
+
+    keep = keep_photo_uris or set()
+    for url in photo_urls - keep:
+        delete_local_upload(url)
+
+
 def create_shared_pedigree(
     db: Session,
     share_key: str,
     store_json: dict,
+    device_id: str | None = None,
 ) -> SharedPedigree:
-    row = SharedPedigree(share_key=share_key, store_json=store_json)
+    trimmed_device = (device_id or "").strip() or None
+    if trimmed_device:
+        delete_shared_pedigrees_for_device(
+            db,
+            trimmed_device,
+            keep_photo_uris=_collect_store_photo_uris(store_json),
+        )
+
+    row = SharedPedigree(
+        share_key=share_key,
+        store_json=store_json,
+        device_id=trimmed_device,
+    )
     db.add(row)
     db.commit()
     db.refresh(row)

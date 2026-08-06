@@ -41,6 +41,8 @@ class SnapshotResponse(BaseModel):
 
 class ShareCreateRequest(BaseModel):
     store: dict[str, Any]
+    # 같은 기기에서 재내보내기 시 이전 공유 삭제용
+    device_id: str | None = Field(default=None, max_length=64)
 
 
 class ShareCreateResponse(BaseModel):

@@ -52,6 +52,8 @@ class SharedPedigree(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     share_key: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    # 기기당 최신 1건만 유지할 때 사용
+    device_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     store_json: Mapped[dict] = mapped_column(MySQLJSON, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False

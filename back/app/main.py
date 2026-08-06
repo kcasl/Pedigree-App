@@ -58,9 +58,43 @@ os.makedirs(settings.upload_dir, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=settings.upload_dir), name="uploads")
 
 
+def ensure_shared_pedigree_device_id_column() -> None:
+    """기존 DB에 device_id 컬럼이 없으면 추가한다."""
+    from sqlalchemy import text
+
+    with engine.begin() as conn:
+        rows = conn.execute(
+            text(
+                """
+                SELECT COUNT(*) AS cnt
+                FROM information_schema.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE()
+                  AND TABLE_NAME = 'shared_pedigrees'
+                  AND COLUMN_NAME = 'device_id'
+                """
+            )
+        ).scalar()
+        if rows:
+            return
+        conn.execute(
+            text(
+                """
+                ALTER TABLE shared_pedigrees
+                ADD COLUMN device_id VARCHAR(64) NULL,
+                ADD INDEX ix_shared_pedigrees_device_id (device_id)
+                """
+            )
+        )
+
+
 @app.on_event("startup")
 def on_startup() -> None:
     Base.metadata.create_all(bind=engine)
+    try:
+        ensure_shared_pedigree_device_id_column()
+    except Exception:  # noqa: BLE001
+        # 테이블이 아직 없거나 권한 문제면 create_all 이후 다음 기동에서 재시도
+        pass
 
 
 @app.get("/health")
@@ -247,7 +281,7 @@ def create_pedigree_share(
         raise HTTPException(status_code=400, detail="invalid store payload")
 
     key = generate_share_key(db)
-    create_shared_pedigree(db, key, store)
+    create_shared_pedigree(db, key, store, device_id=payload.device_id)
     return ShareCreateResponse(key=key)
 
 
