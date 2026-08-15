@@ -1,8 +1,29 @@
 import type { Person, PersonId } from '../types/pedigree';
-import { compareAgeToSelf, type AgeRelation } from './birthOrder';
+import { compareAgeByBirthDate, type AgeRelation } from './birthOrder';
 
-export function siblingBloodLabel(self: Person, sibling: Person): string {
-  const rel = compareAgeToSelf(self, sibling);
+export function siblingAgeRelation(
+  self: Person,
+  sibling: Person,
+  orderedBloodIds?: PersonId[],
+): AgeRelation {
+  const byDate = compareAgeByBirthDate(self, sibling);
+  if (byDate !== 'unknown') return byDate;
+  if (orderedBloodIds?.length) {
+    const selfIndex = orderedBloodIds.indexOf(self.id);
+    const otherIndex = orderedBloodIds.indexOf(sibling.id);
+    if (selfIndex >= 0 && otherIndex >= 0 && otherIndex !== selfIndex) {
+      return otherIndex < selfIndex ? 'older' : 'younger';
+    }
+  }
+  return 'unknown';
+}
+
+export function siblingBloodLabel(
+  self: Person,
+  sibling: Person,
+  orderedBloodIds?: PersonId[],
+): string {
+  const rel = siblingAgeRelation(self, sibling, orderedBloodIds);
   if (rel === 'same' || rel === 'unknown') return '형제';
 
   if (self.gender === 'female') {
@@ -61,8 +82,12 @@ function spouseLabelBySiblingRelation(
   return '인척';
 }
 
-export function siblingSpouseLabel(self: Person, siblingBlood: Person): string {
-  const rel = compareAgeToSelf(self, siblingBlood);
+export function siblingSpouseLabel(
+  self: Person,
+  siblingBlood: Person,
+  orderedBloodIds?: PersonId[],
+): string {
+  const rel = siblingAgeRelation(self, siblingBlood, orderedBloodIds);
   return spouseLabelBySiblingRelation(rel, siblingBlood.gender, self.gender);
 }
 
@@ -82,9 +107,9 @@ export function buildSiblingKinshipLabels(
       out[bloodId] = '본인';
       continue;
     }
-    out[bloodId] = siblingBloodLabel(self, blood);
+    out[bloodId] = siblingBloodLabel(self, blood, siblingBloodIds);
     if (blood.spouseId && peopleById[blood.spouseId]) {
-      out[blood.spouseId] = siblingSpouseLabel(self, blood);
+      out[blood.spouseId] = siblingSpouseLabel(self, blood, siblingBloodIds);
     }
   }
   return out;

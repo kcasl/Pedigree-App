@@ -1,21 +1,42 @@
 /**
  * 선택한 인물을 "나"(me_sib2)로 두고 족보를 호적 구조로 재구성한다.
- * - 혈족: 부모·형제·자녀 중심
- * - 인척(매형·형수·배우자 등): 본인=나, 혈족 배우자=배우자, 원 형제는 배우자 집안으로
- * - 친가/외가 슬롯은 가능하면 self 인물로 해석한 뒤 재구성
+ *
+ * 네 보기(나/친가/외가/배우자 집안)를 한 관계 그래프로 합친 뒤,
+ * 초점과의 촌수(직계 존속·형제·부모/조부모의 형제와 그 비속)로 유지 집합을 정한다.
+ * 특정 예시 슬롯에 의존하지 않는다.
  */
 
 import type { ActiveView, PedigreeStore } from '../types/lineage';
 import type { Person, PersonId } from '../types/pedigree';
-import { collectCoupleChildIds, sortIdsByBirth } from './birthOrder';
+import {
+  assignSiblingSlotIndices,
+  collectCoupleChildIds,
+  defaultSiblingBloodOrder,
+  orderSiblingCouplesAroundFocal,
+  siblingSlotBloodId,
+  sortChildIdsForLayout,
+  sortIdsByBirth,
+} from './birthOrder';
 import { nowIso } from './date';
 import { mergeUserFieldsFromSource } from './personPersist';
-import { SELF_SLOT_INDEX, slotIdsForView } from './standardTemplate';
-import { syncAllViews } from './viewSync';
+import { SELF_SLOT_INDEX, reconcileStore, slotIdsForView } from './standardTemplate';
+import { kinshipLabelToDisplayName } from './kinship';
+import { buildViewKinshipLabels } from './viewSync';
 
 type ViewPrefix = 'me' | 'pat' | 'mat' | 'spo';
 
 type FocalRole = 'blood' | 'inlaw';
+
+const ALL_VIEWS: ActiveView[] = ['self', 'paternal', 'maternal', 'spouse'];
+const VIEW_RANK: Record<ActiveView, number> = {
+  self: 0,
+  paternal: 1,
+  maternal: 2,
+  spouse: 3,
+};
+
+const DESCENDANT_DEPTH_SELF = 3;
+const DESCENDANT_DEPTH_COLLATERAL = 2;
 
 function collectCoupleChildren(
   people: Record<PersonId, Person>,
@@ -58,14 +79,436 @@ function isUnusedTemplatePerson(person: Person): boolean {
   if (!name) return true;
   return (
     /^(큰아버지|큰어머니|고모|고모부|삼촌|숙모|이모|이모부)$/.test(name) ||
-    /^(형의 아들|형의 딸|큰형의 아들|큰형의 딸|누나의 아들|누나의 딸|남동생의 아들|남동생의 딸)$/.test(
+    /^(?:형|큰형|누나|남동생|오빠|언니|여동생|큰아버지|고모|삼촌|이모|나)의 (?:아들|딸|손자)$/.test(
       name,
     ) ||
-    /^(큰아버지의 아들|큰아버지의 딸|고모의 아들|고모의 딸|삼촌의 아들|삼촌의 딸|이모의 아들|이모의 딸)$/.test(
-      name,
-    ) ||
-    /^(나의 아들|나의 딸)$/.test(name)
+    /^(나의 아들|나의 딸|나의 손자)$/.test(name)
   );
+}
+
+const DEFAULT_SLOT_NAME =
+  /^(형|큰형|나|누나|남동생|오빠|언니|여동생|배우자|아버지|어머니|친할아버지|친할머니|외할아버지|외할머니|증조할아버지|증조할머니|큰아버지|큰어머니|고모|고모부|삼촌|숙모|이모|이모부|형수|제수|매형|매부|매제|형부|제부|오빠 부인|배우자 .+)$/;
+
+/** 템플릿 기본 칸만 있는 인물은 방계·비속으로 복사하지 않음 */
+function isExportableRelative(person: Person): boolean {
+  if (isUnusedTemplatePerson(person)) return false;
+  if (person.phone || person.photoUri || person.note || person.birthDate) return true;
+  const name = person.name?.trim() ?? '';
+  if (!name) return false;
+  return !DEFAULT_SLOT_NAME.test(name);
+}
+
+function relativeDedupeKey(person: Person): string {
+  return `${person.name?.trim() ?? ''}|${person.birthDate ?? ''}|${person.photoUri ?? ''}`;
+}
+
+function isSiblingOfFocal(
+  people: Record<PersonId, Person>,
+  person: Person,
+  focalId: PersonId,
+): boolean {
+  const focal = people[focalId];
+  if (!focal || person.id === focalId) return false;
+  const pool = collectCoupleChildren(people, focal.fatherId, focal.motherId);
+  if (pool.includes(person.id)) return true;
+  if (person.fatherId || person.motherId) {
+    return collectCoupleChildren(people, person.fatherId, person.motherId).includes(focalId);
+  }
+  return false;
+}
+
+function isParentSiblingOfFocal(
+  people: Record<PersonId, Person>,
+  person: Person,
+  focalId: PersonId,
+): boolean {
+  const focal = people[focalId];
+  if (!focal || person.id === focalId) return false;
+  for (const parentId of [focal.fatherId, focal.motherId]) {
+    if (!parentId || parentId === person.id) continue;
+    const parent = people[parentId];
+    if (!parent) continue;
+    const sibs = collectCoupleChildren(people, parent.fatherId, parent.motherId);
+    if (sibs.includes(person.id)) return true;
+  }
+  return false;
+}
+
+function isCousinOfFocal(
+  people: Record<PersonId, Person>,
+  person: Person,
+  focalId: PersonId,
+): boolean {
+  const father = person.fatherId ? people[person.fatherId] : undefined;
+  const mother = person.motherId ? people[person.motherId] : undefined;
+  return (
+    (!!father && isParentSiblingOfFocal(people, father, focalId)) ||
+    (!!mother && isParentSiblingOfFocal(people, mother, focalId))
+  );
+}
+
+function hasAnyChild(
+  people: Record<PersonId, Person>,
+  person: Person,
+): boolean {
+  return collectCoupleChildren(people, person.id, person.spouseId).length > 0;
+}
+
+function isChildOfFocal(
+  people: Record<PersonId, Person>,
+  person: Person,
+  focalId: PersonId,
+): boolean {
+  const focal = people[focalId];
+  if (!focal) return false;
+  return collectCoupleChildren(people, focalId, focal.spouseId).includes(person.id);
+}
+
+/** 기본 형제 칸은 유지. 빈 사촌·손자 템플릿은 제외. */
+function shouldKeepPerson(
+  people: Record<PersonId, Person>,
+  person: Person | undefined,
+  focalId: PersonId,
+): boolean {
+  if (!person) return false;
+  if (person.id === focalId) return true;
+  if (isExportableRelative(person)) return true;
+  if (isUnusedTemplatePerson(person)) {
+    if (isChildOfFocal(people, person, focalId)) {
+      const name = person.name?.trim() ?? '';
+      return /^(나의 아들|나의 딸)$/.test(name) || !/손자$/.test(name);
+    }
+    if (isSiblingOfFocal(people, person, focalId)) return true;
+    if (isCousinOfFocal(people, person, focalId)) return true;
+    if (isParentSiblingOfFocal(people, person, focalId) && hasAnyChild(people, person)) {
+      return true;
+    }
+    return false;
+  }
+  if (isCousinOfFocal(people, person, focalId)) return true;
+  return true;
+}
+
+function isGhostTemplateRelative(
+  people: Record<PersonId, Person>,
+  person: Person,
+  focalId: PersonId,
+): boolean {
+  if (person.id === focalId) return false;
+  if (!isUnusedTemplatePerson(person)) return false;
+  if (isSiblingOfFocal(people, person, focalId)) return false;
+  if (isCousinOfFocal(people, person, focalId)) return false;
+  if (isParentSiblingOfFocal(people, person, focalId)) return false;
+  if (isChildOfFocal(people, person, focalId)) {
+    return /손자$/.test(person.name?.trim() ?? '');
+  }
+  return /의 (?:아들|딸|손자)$/.test(person.name?.trim() ?? '');
+}
+
+function pruneGhostPeople(
+  people: Record<PersonId, Person>,
+  focalId: PersonId,
+): Record<PersonId, Person> {
+  const drop = new Set<PersonId>();
+  for (const person of Object.values(people)) {
+    if (isGhostTemplateRelative(people, person, focalId)) drop.add(person.id);
+  }
+  if (!drop.size) return people;
+  const out: Record<PersonId, Person> = {};
+  for (const [id, person] of Object.entries(people)) {
+    if (drop.has(id)) continue;
+    out[id] = {
+      ...person,
+      fatherId: person.fatherId && drop.has(person.fatherId) ? undefined : person.fatherId,
+      motherId: person.motherId && drop.has(person.motherId) ? undefined : person.motherId,
+      spouseId: person.spouseId && drop.has(person.spouseId) ? undefined : person.spouseId,
+    };
+  }
+  return out;
+}
+
+/** 불러오기 후: 빈 템플릿 유령을 빼고 슬롯 구조를 맞춘다. */
+export function rearrangePedigreeStore(store: PedigreeStore): PedigreeStore {
+  const views: PedigreeStore['views'] = { ...store.views };
+  for (const view of ALL_VIEWS) {
+    const people = store.views[view] ?? {};
+    const focalId = slotIdsForView(view).selfId;
+    views[view] = pruneGhostPeople(people, people[focalId] ? focalId : Object.keys(people)[0] ?? focalId);
+  }
+  return reconcileStore({ ...store, views });
+}
+
+function mergePersonUnion(a: Person, b: Person): Person {
+  return {
+    ...a,
+    name: a.name?.trim() ? a.name : b.name,
+    phone: a.phone || b.phone,
+    birthDate: a.birthDate || b.birthDate,
+    photoUri: a.photoUri || b.photoUri,
+    note: a.note || b.note,
+    gender: a.gender && a.gender !== 'unknown' ? a.gender : b.gender,
+    createdAt: a.createdAt || b.createdAt,
+  };
+}
+
+function viewKey(view: ActiveView, id: PersonId): string {
+  return `${view}\0${id}`;
+}
+
+type ViewMember = { view: ActiveView; id: PersonId; person: Person };
+
+function parentIsAnchor(
+  parent: Person,
+  parentView: ActiveView,
+  parentId: PersonId,
+  childId: PersonId,
+  views: Record<ActiveView, Record<PersonId, Person>>,
+): boolean {
+  if (isExportableRelative(parent)) return true;
+  const kids = collectCoupleChildren(
+    views[parentView] ?? {},
+    parentId,
+    parent.spouseId,
+  );
+  return kids.some(kidId => {
+    if (kidId === childId) return false;
+    const kid = views[parentView][kidId];
+    return !!kid && isExportableRelative(kid);
+  });
+}
+
+function pickCanonicalId(members: ViewMember[]): PersonId {
+  const sorted = [...members].sort((a, b) => {
+    const rank = VIEW_RANK[a.view] - VIEW_RANK[b.view];
+    if (rank !== 0) return rank;
+    return a.id.localeCompare(b.id);
+  });
+  return sorted[0]!.id;
+}
+
+function pickLinkedId(
+  members: ViewMember[],
+  role: 'fatherId' | 'motherId' | 'spouseId',
+  canonOf: (view: ActiveView, id: PersonId) => PersonId | undefined,
+  views: Record<ActiveView, Record<PersonId, Person>>,
+): PersonId | undefined {
+  const selfMember = members.find(m => m.view === 'self');
+  if (selfMember) {
+    const raw = selfMember.person[role];
+    if (raw && views.self?.[raw]) return canonOf('self', raw);
+  }
+  const memberIsExportable = members.some(m => isExportableRelative(m.person));
+  const selfSpouseId = slotIdsForView('self').spouseId;
+  const isSelfSpouse = members.some(m => m.view === 'self' && m.id === selfSpouseId);
+  for (const member of members) {
+    const raw = member.person[role];
+    if (!raw || !views[member.view]?.[raw]) continue;
+    if (role === 'spouseId') return canonOf(member.view, raw);
+    const parent = views[member.view][raw];
+    if (
+      memberIsExportable ||
+      parentIsAnchor(parent, member.view, raw, member.id, views) ||
+      (isSelfSpouse && member.view === 'spouse')
+    ) {
+      return canonOf(member.view, raw);
+    }
+  }
+  return undefined;
+}
+
+function seedStaticIdentityUnions(union: (a: string, b: string) => void): void {
+  const me = slotIdsForView('self');
+  const pat = slotIdsForView('paternal');
+  const mat = slotIdsForView('maternal');
+  const spo = slotIdsForView('spouse');
+  const pairs: Array<[ActiveView, PersonId, ActiveView, PersonId]> = [
+    ['self', me.father, 'paternal', pat.selfId],
+    ['self', me.mother, 'paternal', pat.spouseId],
+    ['self', me.gf, 'paternal', pat.father],
+    ['self', me.gm, 'paternal', pat.mother],
+    ['self', me.ggf, 'paternal', pat.gf],
+    ['self', me.ggm, 'paternal', pat.gm],
+    ['self', me.mgf, 'paternal', pat.mgf],
+    ['self', me.mgm, 'paternal', pat.mgm],
+    ['self', me.mother, 'maternal', mat.selfId],
+    ['self', me.father, 'maternal', mat.spouseId],
+    ['self', me.mgf, 'maternal', mat.father],
+    ['self', me.mgm, 'maternal', mat.mother],
+    ['self', me.mggf, 'maternal', mat.gf],
+    ['self', me.mggm, 'maternal', mat.gm],
+    ['self', me.spouseId, 'spouse', spo.selfId],
+    ['self', me.selfId, 'spouse', spo.spouseId],
+  ];
+  for (const [v1, i1, v2, i2] of pairs) {
+    union(viewKey(v1, i1), viewKey(v2, i2));
+  }
+}
+
+/**
+ * 모든 보기의 동일 인물을 한 그래프에 합친다.
+ * 슬롯 대응 + (같은 부모 컴포넌트 · 실데이터 키) + 배우자 링크.
+ */
+function flattenStoreToCanonical(store: PedigreeStore): {
+  people: Record<PersonId, Person>;
+  resolveId: (view: ActiveView, id: PersonId) => PersonId;
+} {
+  const views = store.views;
+  const parent = new Map<string, string>();
+
+  const find = (k: string): string => {
+    if (!parent.has(k)) parent.set(k, k);
+    const chain: string[] = [];
+    let cur = k;
+    while (parent.get(cur) !== cur) {
+      chain.push(cur);
+      cur = parent.get(cur)!;
+    }
+    for (const node of chain) parent.set(node, cur);
+    return cur;
+  };
+  const union = (a: string, b: string) => {
+    const ra = find(a);
+    const rb = find(b);
+    if (ra !== rb) parent.set(ra, rb);
+  };
+
+  for (const view of ALL_VIEWS) {
+    for (const id of Object.keys(views[view] ?? {})) {
+      find(viewKey(view, id as PersonId));
+    }
+  }
+  seedStaticIdentityUnions(union);
+
+  const coupleKey = (view: ActiveView, person: Person): string | null => {
+    const f =
+      person.fatherId && views[view]?.[person.fatherId]
+        ? find(viewKey(view, person.fatherId))
+        : '';
+    const m =
+      person.motherId && views[view]?.[person.motherId]
+        ? find(viewKey(view, person.motherId))
+        : '';
+    if (!f && !m) return null;
+    return [f, m].filter(Boolean).sort().join('|');
+  };
+
+  for (let pass = 0; pass < 12; pass += 1) {
+    let changed = false;
+    const tryUnion = (a: string, b: string) => {
+      if (find(a) !== find(b)) {
+        union(a, b);
+        changed = true;
+      }
+    };
+
+    const membersByRoot = new Map<string, ViewMember[]>();
+    for (const view of ALL_VIEWS) {
+      for (const person of Object.values(views[view] ?? {})) {
+        const root = find(viewKey(view, person.id));
+        const list = membersByRoot.get(root) ?? [];
+        list.push({ view, id: person.id, person });
+        membersByRoot.set(root, list);
+      }
+    }
+
+    for (const members of membersByRoot.values()) {
+      const spouseKeys: string[] = [];
+      for (const member of members) {
+        const sid = member.person.spouseId;
+        if (sid && views[member.view]?.[sid]) {
+          spouseKeys.push(viewKey(member.view, sid));
+        }
+      }
+      for (let i = 1; i < spouseKeys.length; i += 1) {
+        tryUnion(spouseKeys[0]!, spouseKeys[i]!);
+      }
+    }
+
+    const byParents = new Map<string, ViewMember[]>();
+    for (const view of ALL_VIEWS) {
+      for (const person of Object.values(views[view] ?? {})) {
+        if (!isExportableRelative(person)) continue;
+        const key = coupleKey(view, person);
+        if (!key) continue;
+        const list = byParents.get(key) ?? [];
+        list.push({ view, id: person.id, person });
+        byParents.set(key, list);
+      }
+    }
+    for (const group of byParents.values()) {
+      const byDedupe = new Map<string, ViewMember[]>();
+      for (const member of group) {
+        const k = relativeDedupeKey(member.person);
+        const list = byDedupe.get(k) ?? [];
+        list.push(member);
+        byDedupe.set(k, list);
+      }
+      for (const same of byDedupe.values()) {
+        for (let i = 1; i < same.length; i += 1) {
+          tryUnion(
+            viewKey(same[0]!.view, same[0]!.id),
+            viewKey(same[i]!.view, same[i]!.id),
+          );
+        }
+      }
+    }
+
+    if (!changed) break;
+  }
+
+  const membersByRoot = new Map<string, ViewMember[]>();
+  for (const view of ALL_VIEWS) {
+    for (const person of Object.values(views[view] ?? {})) {
+      const root = find(viewKey(view, person.id));
+      const list = membersByRoot.get(root) ?? [];
+      list.push({ view, id: person.id, person });
+      membersByRoot.set(root, list);
+    }
+  }
+
+  const rootToCanon = new Map<string, PersonId>();
+  const usedIds = new Set<PersonId>();
+  for (const [root, members] of membersByRoot) {
+    let canon = pickCanonicalId(members);
+    if (usedIds.has(canon)) {
+      const preferred = members.find(m => m.view === 'self') ?? members[0]!;
+      canon = `${preferred.view}:${preferred.id}` as PersonId;
+    }
+    usedIds.add(canon);
+    rootToCanon.set(root, canon);
+  }
+
+  const canonOf = (view: ActiveView, id: PersonId): PersonId | undefined => {
+    const key = viewKey(view, id);
+    if (!parent.has(key) && !views[view]?.[id]) return undefined;
+    return rootToCanon.get(find(key));
+  };
+
+  const people: Record<PersonId, Person> = {};
+  for (const [root, members] of membersByRoot) {
+    const canonId = rootToCanon.get(root);
+    if (!canonId) continue;
+    const ordered = [...members].sort(
+      (a, b) => VIEW_RANK[a.view] - VIEW_RANK[b.view] || a.id.localeCompare(b.id),
+    );
+    let merged = { ...ordered[0]!.person, id: canonId };
+    for (let i = 1; i < ordered.length; i += 1) {
+      merged = mergePersonUnion(merged, ordered[i]!.person);
+    }
+    merged = {
+      ...merged,
+      id: canonId,
+      fatherId: pickLinkedId(members, 'fatherId', canonOf, views),
+      motherId: pickLinkedId(members, 'motherId', canonOf, views),
+      spouseId: pickLinkedId(members, 'spouseId', canonOf, views),
+    };
+    people[canonId] = merged;
+  }
+
+  return {
+    people,
+    resolveId: (view, id) => canonOf(view, id) ?? id,
+  };
 }
 
 function classifyFocal(
@@ -120,7 +563,6 @@ export function resolveFocalToSelfView(
     return { view: 'self', personId: mapped };
   }
 
-  // 배우자 슬롯 → self 쪽 배우자
   if (focalPersonId.endsWith('_sp')) {
     const bloodLineageId = focalPersonId.replace(/_sp$/, '');
     const selfBlood = staticMap[bloodLineageId];
@@ -128,12 +570,9 @@ export function resolveFocalToSelfView(
       const sp = selfPeople[selfBlood].spouseId!;
       if (selfPeople[sp]) return { view: 'self', personId: sp };
     }
-    // 형제 줄 배우자: pat_sib1_sp 등 — 출생순 매핑은 아래에서 자녀로 처리
   }
 
-  const childMatch = focalPersonId.match(
-    /^(pat|mat)_c2_(\d+)(?:_sp)?$/,
-  );
+  const childMatch = focalPersonId.match(/^(pat|mat)_c2_(\d+)(?:_sp)?$/);
   if (childMatch) {
     const father = selfPeople[me.father];
     const mother = selfPeople[me.mother];
@@ -154,7 +593,6 @@ export function resolveFocalToSelfView(
     }
   }
 
-  // 형제 슬롯 pat_sibN / mat_sibN → self 부모의 형제(조부모 자녀)
   const sibMatch = focalPersonId.match(/^(pat|mat)_sib(\d+)(_sp)?$/);
   if (sibMatch && sourceView === 'paternal') {
     const gf = selfPeople[me.gf];
@@ -165,7 +603,6 @@ export function resolveFocalToSelfView(
         collectCoupleChildren(selfPeople, gf.id, gm.id),
         selfPeople,
       );
-      // 아버지 중심으로 슬롯 배치와 동일하진 않을 수 있어, 이름·id로 아버지 매칭 후 좌우
       const fatherPos = uncles.indexOf(me.father);
       const slotIndex = Number(sibMatch[2]);
       let targetBlood: PersonId | undefined;
@@ -213,35 +650,8 @@ export function resolveFocalToSelfView(
   return { view: sourceView, personId: focalPersonId };
 }
 
-function assignSiblingSlotIndices(
-  siblingIdsSorted: PersonId[],
-  focalId: PersonId,
-): Map<PersonId, number> {
-  const focalPos = siblingIdsSorted.indexOf(focalId);
-  const map = new Map<PersonId, number>();
-  if (focalPos < 0) {
-    map.set(focalId, SELF_SLOT_INDEX);
-    return map;
-  }
-
-  map.set(focalId, SELF_SLOT_INDEX);
-  const older = siblingIdsSorted.slice(0, focalPos).reverse();
-  const younger = siblingIdsSorted.slice(focalPos + 1);
-
-  older.forEach((id, i) => {
-    map.set(id, i === 0 ? 1 : i === 1 ? 0 : -(i - 1));
-  });
-  younger.forEach((id, i) => {
-    map.set(id, i === 0 ? 3 : i === 1 ? 4 : 5 + (i - 2));
-  });
-
-  return map;
-}
-
 function siblingBloodId(prefix: ViewPrefix, slotIndex: number): PersonId {
-  if (slotIndex >= 0 && slotIndex <= 4) return `${prefix}_sib${slotIndex}`;
-  if (slotIndex < 0) return `${prefix}_sib_extra_L${Math.abs(slotIndex)}`;
-  return `${prefix}_sib_extra_R${slotIndex}`;
+  return siblingSlotBloodId(prefix, slotIndex);
 }
 
 function siblingSpouseId(bloodId: PersonId): PersonId {
@@ -289,18 +699,192 @@ function placeIfSource(
   ensurePerson(out, slotId, source, links, createdAt);
 }
 
+function placeNatalParentsOf(
+  out: Record<PersonId, Person>,
+  sourcePeople: Record<PersonId, Person>,
+  childSrc: Person | undefined,
+  childSlotId: PersonId,
+  skipFatherSlot: PersonId,
+  skipMotherSlot: PersonId,
+  idPrefix: string,
+  createdAt: string,
+): void {
+  if (!childSrc || !out[childSlotId]) return;
+  const fOld = childSrc.fatherId;
+  const mOld = childSrc.motherId;
+  if (fOld === skipFatherSlot || mOld === skipMotherSlot) return;
+  const fSrc = fOld && fOld !== skipFatherSlot ? sourcePeople[fOld] : undefined;
+  const mSrc = mOld && mOld !== skipMotherSlot ? sourcePeople[mOld] : undefined;
+  if (!fSrc && !mSrc) return;
+
+  const fId = `${idPrefix}_f` as PersonId;
+  const mId = `${idPrefix}_m` as PersonId;
+  placeIfSource(out, fId, fSrc, { spouseId: mSrc ? mId : undefined }, createdAt);
+  placeIfSource(out, mId, mSrc, { spouseId: fSrc ? fId : undefined }, createdAt);
+  out[childSlotId] = {
+    ...out[childSlotId],
+    fatherId: fSrc ? fId : out[childSlotId].fatherId,
+    motherId: mSrc ? mId : out[childSlotId].motherId,
+  };
+}
+
+function keepableSpouse(
+  sourcePeople: Record<PersonId, Person>,
+  spouseId: PersonId | undefined,
+): Person | undefined {
+  if (!spouseId) return undefined;
+  const spouse = sourcePeople[spouseId];
+  if (!spouse || isUnusedTemplatePerson(spouse)) return undefined;
+  return spouse;
+}
+
+function placeDescendants(args: {
+  out: Record<PersonId, Person>;
+  sourcePeople: Record<PersonId, Person>;
+  focalId: PersonId;
+  oldBloodId: PersonId;
+  oldSpouseId?: PersonId;
+  newBloodId: PersonId;
+  newSpouseId?: PersonId;
+  childIdFor: (index: number) => PersonId;
+  createdAt: string;
+  depth: number;
+}): void {
+  const {
+    out,
+    sourcePeople,
+    focalId,
+    oldBloodId,
+    oldSpouseId,
+    newBloodId,
+    newSpouseId,
+    childIdFor,
+    createdAt,
+    depth,
+  } = args;
+  if (depth <= 0) return;
+
+  const childIds = sortChildIdsForLayout(
+    collectCoupleChildren(sourcePeople, oldBloodId, oldSpouseId),
+    sourcePeople,
+  ).filter(id => shouldKeepPerson(sourcePeople, sourcePeople[id], focalId));
+
+  childIds.forEach((oldChildId, ci) => {
+    const childSrc = sourcePeople[oldChildId];
+    if (!childSrc) return;
+    const newChildId = childIdFor(ci);
+    const childSpouseSrc = keepableSpouse(sourcePeople, childSrc.spouseId);
+    const newChildSpouseId = childSpouseSrc ? (`${newChildId}_sp` as PersonId) : undefined;
+    const fatherIsBlood =
+      childSrc.fatherId === oldBloodId ||
+      (!childSrc.fatherId && sourcePeople[oldBloodId]?.gender !== 'female');
+
+    ensurePerson(
+      out,
+      newChildId,
+      childSrc,
+      {
+        fatherId: fatherIsBlood ? newBloodId : newSpouseId,
+        motherId: fatherIsBlood ? newSpouseId : newBloodId,
+        spouseId: newChildSpouseId,
+      },
+      createdAt,
+    );
+    if (childSpouseSrc && newChildSpouseId) {
+      ensurePerson(out, newChildSpouseId, childSpouseSrc, { spouseId: newChildId }, createdAt);
+    }
+
+    placeDescendants({
+      out,
+      sourcePeople,
+      focalId,
+      oldBloodId: oldChildId,
+      oldSpouseId: childSrc.spouseId,
+      newBloodId: newChildId,
+      newSpouseId: newChildSpouseId,
+      childIdFor: index => `${newChildId}_d${index}` as PersonId,
+      createdAt,
+      depth: depth - 1,
+    });
+  });
+}
+
 function filterSiblingPool(
   people: Record<PersonId, Person>,
   pool: PersonId[],
   focalId: PersonId,
-  sourceView: ActiveView,
 ): PersonId[] {
   return pool.filter(id => {
     if (id === focalId) return true;
-    const p = people[id];
-    if (!p) return false;
-    if (sourceView === 'self' || sourceView === 'spouse') return true;
-    return !isUnusedTemplatePerson(p);
+    return shouldKeepPerson(people, people[id], focalId);
+  });
+}
+
+/**
+ * 초점 부모의 형제(새 족보에서 큰아버지·고모·이모·삼촌)와 그 배우자·자녀를 배치.
+ */
+function placeParentSiblings(
+  out: Record<PersonId, Person>,
+  sourcePeople: Record<PersonId, Person>,
+  parentSrc: Person | undefined,
+  newParentLinks: { fatherId?: PersonId; motherId?: PersonId },
+  idPrefix: string,
+  createdAt: string,
+  focalId: PersonId,
+): void {
+  if (!parentSrc) return;
+  const gpFatherOld = parentSrc.fatherId;
+  const gpMotherOld = parentSrc.motherId;
+  if (!gpFatherOld && !gpMotherOld) return;
+
+  const pool = collectCoupleChildren(sourcePeople, gpFatherOld, gpMotherOld).filter(id => {
+    if (id === parentSrc.id) return false;
+    return shouldKeepPerson(sourcePeople, sourcePeople[id], focalId);
+  });
+  if (!pool.length) return;
+
+  const sorted = sortChildIdsForLayout(pool, sourcePeople);
+  sorted.forEach((oldBloodId, i) => {
+    const bloodSrc = sourcePeople[oldBloodId];
+    if (!bloodSrc) return;
+    const newBloodId = `${idPrefix}_${i}` as PersonId;
+    const spSrc = keepableSpouse(sourcePeople, bloodSrc.spouseId);
+    const newSpouseId = spSrc ? (`${newBloodId}_sp` as PersonId) : undefined;
+
+    ensurePerson(
+      out,
+      newBloodId,
+      bloodSrc,
+      {
+        fatherId:
+          newParentLinks.fatherId && out[newParentLinks.fatherId]
+            ? newParentLinks.fatherId
+            : undefined,
+        motherId:
+          newParentLinks.motherId && out[newParentLinks.motherId]
+            ? newParentLinks.motherId
+            : undefined,
+        spouseId: newSpouseId,
+      },
+      createdAt,
+    );
+
+    if (spSrc && newSpouseId) {
+      ensurePerson(out, newSpouseId, spSrc, { spouseId: newBloodId }, createdAt);
+    }
+
+    placeDescendants({
+      out,
+      sourcePeople,
+      focalId,
+      oldBloodId,
+      oldSpouseId: bloodSrc.spouseId,
+      newBloodId,
+      newSpouseId,
+      childIdFor: ci => `${newBloodId}_c${ci}` as PersonId,
+      createdAt,
+      depth: DESCENDANT_DEPTH_COLLATERAL,
+    });
   });
 }
 
@@ -312,16 +896,17 @@ function buildBloodCenteredView(
   sourcePeople: Record<PersonId, Person>,
   bloodFocalId: PersonId,
   prefix: ViewPrefix,
-  sourceView: ActiveView,
+  _sourceView: ActiveView,
   createdAt: string,
   options?: {
-    /** 초점의 배우자를 이 소스로 강제(인척 재배치 시 배우자 뷰용) */
     forceSpouseSource?: Person;
     forceSpouseIsFocal?: boolean;
+    keepFocalId?: PersonId;
   },
 ): Record<PersonId, Person> {
   const focal = sourcePeople[bloodFocalId];
   if (!focal) return {};
+  const keepFocalId = options?.keepFocalId ?? bloodFocalId;
 
   const slots = {
     ggf: `${prefix}_ggf` as PersonId,
@@ -359,8 +944,20 @@ function buildBloodCenteredView(
 
   placeIfSource(out, slots.ggf, ggfSrc, { spouseId: ggmSrc ? slots.ggm : undefined }, createdAt);
   placeIfSource(out, slots.ggm, ggmSrc, { spouseId: ggfSrc ? slots.ggf : undefined }, createdAt);
-  placeIfSource(out, slots.mggf, mggfSrc, { spouseId: mggmSrc ? slots.mggm : undefined }, createdAt);
-  placeIfSource(out, slots.mggm, mggmSrc, { spouseId: mggfSrc ? slots.mggf : undefined }, createdAt);
+  placeIfSource(
+    out,
+    slots.mggf,
+    mggfSrc,
+    { spouseId: mggmSrc ? slots.mggm : undefined },
+    createdAt,
+  );
+  placeIfSource(
+    out,
+    slots.mggm,
+    mggmSrc,
+    { spouseId: mggfSrc ? slots.mggf : undefined },
+    createdAt,
+  );
 
   placeIfSource(
     out,
@@ -374,6 +971,16 @@ function buildBloodCenteredView(
     createdAt,
   );
   placeIfSource(out, slots.gm, gmSrc, { spouseId: gfSrc ? slots.gf : undefined }, createdAt);
+  placeNatalParentsOf(
+    out,
+    sourcePeople,
+    gmSrc,
+    slots.gm,
+    slots.ggf,
+    slots.ggm,
+    `${prefix}_gm`,
+    createdAt,
+  );
   placeIfSource(
     out,
     slots.mgf,
@@ -386,6 +993,16 @@ function buildBloodCenteredView(
     createdAt,
   );
   placeIfSource(out, slots.mgm, mgmSrc, { spouseId: mgfSrc ? slots.mgf : undefined }, createdAt);
+  placeNatalParentsOf(
+    out,
+    sourcePeople,
+    mgmSrc,
+    slots.mgm,
+    slots.mggf,
+    slots.mggm,
+    `${prefix}_mgm`,
+    createdAt,
+  );
 
   placeIfSource(
     out,
@@ -410,6 +1027,37 @@ function buildBloodCenteredView(
     createdAt,
   );
 
+  const collateral = (
+    parent: Person | undefined,
+    links: { fatherId?: PersonId; motherId?: PersonId },
+    prefixKey: string,
+  ) =>
+    placeParentSiblings(out, sourcePeople, parent, links, prefixKey, createdAt, keepFocalId);
+
+  collateral(
+    fatherSrc,
+    { fatherId: gfSrc ? slots.gf : undefined, motherId: gmSrc ? slots.gm : undefined },
+    `${prefix}_psib`,
+  );
+  collateral(
+    motherSrc,
+    { fatherId: mgfSrc ? slots.mgf : undefined, motherId: mgmSrc ? slots.mgm : undefined },
+    `${prefix}_msib`,
+  );
+  collateral(
+    gfSrc,
+    { fatherId: ggfSrc ? slots.ggf : undefined, motherId: ggmSrc ? slots.ggm : undefined },
+    `${prefix}_gsib`,
+  );
+  // 조모·외조모의 출생 가계는 증조 슬롯과 다를 수 있어 부모 링크는 소스 기준으로만 붙인다.
+  collateral(gmSrc, {}, `${prefix}_gmsib`);
+  collateral(
+    mgfSrc,
+    { fatherId: mggfSrc ? slots.mggf : undefined, motherId: mggmSrc ? slots.mggm : undefined },
+    `${prefix}_mgsib`,
+  );
+  collateral(mgmSrc, {}, `${prefix}_mgmsib`);
+
   let siblingPool =
     fatherSrc && motherSrc
       ? collectCoupleChildren(sourcePeople, fatherSrc.id, motherSrc.id)
@@ -418,10 +1066,19 @@ function buildBloodCenteredView(
         : [bloodFocalId];
 
   if (!siblingPool.includes(bloodFocalId)) siblingPool.push(bloodFocalId);
-  siblingPool = filterSiblingPool(sourcePeople, siblingPool, bloodFocalId, sourceView);
+  siblingPool = filterSiblingPool(sourcePeople, siblingPool, keepFocalId);
   if (!siblingPool.includes(bloodFocalId)) siblingPool.push(bloodFocalId);
 
-  const siblingsSorted = sortIdsByBirth(siblingPool, sourcePeople);
+  const templateOrder =
+    prefix === 'me' ? defaultSiblingBloodOrder('self', slotIdsForView('self')) : undefined;
+  const orderedSiblings = orderSiblingCouplesAroundFocal(
+    siblingPool.map(id => ({ blood: id })),
+    bloodFocalId,
+    sourcePeople,
+    templateOrder,
+  ).couples.map(c => c.blood);
+  const siblingsSorted = orderedSiblings.filter(id => siblingPool.includes(id));
+  if (!siblingsSorted.includes(bloodFocalId)) siblingsSorted.push(bloodFocalId);
   const slotIndexByOldId = assignSiblingSlotIndices(siblingsSorted, bloodFocalId);
 
   for (const oldBloodId of siblingsSorted) {
@@ -433,9 +1090,7 @@ function buildBloodCenteredView(
     const isFocalBlood = oldBloodId === bloodFocalId;
     const spSrc = isFocalBlood
       ? spouseSrc
-      : bloodSrc.spouseId && sourcePeople[bloodSrc.spouseId]
-        ? sourcePeople[bloodSrc.spouseId]
-        : undefined;
+      : keepableSpouse(sourcePeople, bloodSrc.spouseId);
     const newSpouseId = spSrc ? siblingSpouseId(newBloodId) : undefined;
 
     ensurePerson(
@@ -454,67 +1109,18 @@ function buildBloodCenteredView(
       ensurePerson(out, newSpouseId, spSrc, { spouseId: newBloodId }, createdAt);
     }
 
-    const childIds = sortIdsByBirth(
-      collectCoupleChildren(sourcePeople, bloodSrc.id, bloodSrc.spouseId),
+    placeDescendants({
+      out,
       sourcePeople,
-    );
-    childIds.forEach((oldChildId, ci) => {
-      const childSrc = sourcePeople[oldChildId];
-      if (!childSrc) return;
-      const newChildId = childIdForParentSlot(prefix, slotIndex, ci);
-      const childSpouseSrc =
-        childSrc.spouseId && sourcePeople[childSrc.spouseId]
-          ? sourcePeople[childSrc.spouseId]
-          : undefined;
-      const newChildSpouseId = childSpouseSrc ? `${newChildId}_sp` : undefined;
-      const fatherIsBlood =
-        childSrc.fatherId === bloodSrc.id ||
-        (!childSrc.fatherId && bloodSrc.gender !== 'female');
-
-      ensurePerson(
-        out,
-        newChildId,
-        childSrc,
-        {
-          fatherId: fatherIsBlood ? newBloodId : newSpouseId,
-          motherId: fatherIsBlood ? newSpouseId : newBloodId,
-          spouseId: newChildSpouseId,
-        },
-        createdAt,
-      );
-
-      if (childSpouseSrc && newChildSpouseId) {
-        ensurePerson(out, newChildSpouseId, childSpouseSrc, { spouseId: newChildId }, createdAt);
-      }
-
-      const gcIds = sortIdsByBirth(
-        collectCoupleChildren(sourcePeople, childSrc.id, childSrc.spouseId),
-        sourcePeople,
-      );
-      gcIds.forEach((oldGcId, gi) => {
-        const gcSrc = sourcePeople[oldGcId];
-        if (!gcSrc) return;
-        const newGcId = `${prefix}_gc_${slotIndex}_${ci}_${gi}`;
-        const gcFatherIsChild =
-          gcSrc.fatherId === childSrc.id ||
-          (!gcSrc.fatherId && childSrc.gender !== 'female');
-        ensurePerson(
-          out,
-          newGcId,
-          gcSrc,
-          {
-            fatherId: gcFatherIsChild ? newChildId : newChildSpouseId,
-            motherId: gcFatherIsChild ? newChildSpouseId : newChildId,
-          },
-          createdAt,
-        );
-      });
+      focalId: keepFocalId,
+      oldBloodId,
+      oldSpouseId: bloodSrc.spouseId,
+      newBloodId,
+      newSpouseId,
+      childIdFor: ci => childIdForParentSlot(prefix, slotIndex, ci),
+      createdAt,
+      depth: DESCENDANT_DEPTH_SELF,
     });
-  }
-
-  // 인척 초점으로 이 뷰를 만들 때: 초점 본인이 배우자 슬롯이어야 하는 경우
-  if (options?.forceSpouseIsFocal && spouseSrc) {
-    // blood focal is center; spouse already set — no swap here
   }
 
   const meId = slots.selfId;
@@ -550,7 +1156,6 @@ function buildInLawRebasedViews(
   const meSlots = slotIdsForView('self');
   const self: Record<PersonId, Person> = {};
 
-  // 인척 본인의 부모(있으면)만 self 쪽 부모로
   const fatherSrc = inlaw.fatherId ? sourcePeople[inlaw.fatherId] : undefined;
   const motherSrc = inlaw.motherId ? sourcePeople[inlaw.motherId] : undefined;
   placeIfSource(
@@ -581,11 +1186,10 @@ function buildInLawRebasedViews(
   );
   ensurePerson(self, meSlots.spouseId, blood, { spouseId: meSlots.selfId }, createdAt);
 
-  // 부부 자녀 → 나의 자녀
-  const childIds = sortIdsByBirth(
+  const childIds = sortChildIdsForLayout(
     collectCoupleChildren(sourcePeople, inlawId, bloodId),
     sourcePeople,
-  );
+  ).filter(id => shouldKeepPerson(sourcePeople, sourcePeople[id], inlawId));
   childIds.forEach((oldChildId, ci) => {
     const childSrc = sourcePeople[oldChildId];
     if (!childSrc) return;
@@ -605,65 +1209,129 @@ function buildInLawRebasedViews(
     );
   });
 
-  // 혈족(누나 등) 중심 트리를 배우자 집안으로
   const spouse = buildBloodCenteredView(sourcePeople, bloodId, 'spo', sourceView, createdAt, {
     forceSpouseSource: inlaw,
+    keepFocalId: inlawId,
   });
 
   return { self, spouse };
 }
 
+function buildLineageViewsAround(
+  sourcePeople: Record<PersonId, Person>,
+  personId: PersonId,
+  sourceView: ActiveView,
+  createdAt: string,
+  keepFocalId: PersonId,
+  alreadyBuiltSpouse?: Record<PersonId, Person>,
+): {
+  paternal: Record<PersonId, Person>;
+  maternal: Record<PersonId, Person>;
+  spouse: Record<PersonId, Person>;
+} {
+  const person = sourcePeople[personId];
+  const keep = { keepFocalId };
+  const fatherId = person?.fatherId;
+  const motherId = person?.motherId;
+  const spouseId = person?.spouseId;
+  return {
+    paternal:
+      fatherId && sourcePeople[fatherId]
+        ? buildBloodCenteredView(sourcePeople, fatherId, 'pat', sourceView, createdAt, keep)
+        : {},
+    maternal:
+      motherId && sourcePeople[motherId]
+        ? buildBloodCenteredView(sourcePeople, motherId, 'mat', sourceView, createdAt, keep)
+        : {},
+    spouse:
+      alreadyBuiltSpouse ??
+      (spouseId && sourcePeople[spouseId]
+        ? buildBloodCenteredView(sourcePeople, spouseId, 'spo', sourceView, createdAt, {
+            ...keep,
+            forceSpouseSource: person,
+          })
+        : {}),
+  };
+}
+
+function shouldReplaceWithKinshipName(person: Person): boolean {
+  const name = person.name?.trim() ?? '';
+  return !name || name === '친족';
+}
+
+function applyKinshipTitlesToView(
+  people: Record<PersonId, Person>,
+  view: ActiveView,
+  selfPeople?: Record<PersonId, Person>,
+): Record<PersonId, Person> {
+  if (!Object.keys(people).length) return people;
+  const labels = buildViewKinshipLabels(view, people, selfPeople);
+  const out = { ...people };
+  for (const [id, person] of Object.entries(people)) {
+    if (!shouldReplaceWithKinshipName(person)) continue;
+    const label = labels[id];
+    if (!label || label === '친족') continue;
+    out[id] = { ...person, name: kinshipLabelToDisplayName(label, person) };
+  }
+  return out;
+}
+
 /**
- * sourceView의 focalPersonId를 기준으로 self(+필요 시 spouse) 뷰를 재구성한 PedigreeStore.
+ * sourceView의 focalPersonId를 기준으로 나/친가/외가/배우자 보기를 재구성한 PedigreeStore.
  */
 export function rebaseStoreAroundPerson(
   store: PedigreeStore,
   focalPersonId: PersonId,
   sourceView: ActiveView = store.activeView,
 ): PedigreeStore {
-  const resolved = resolveFocalToSelfView(store, sourceView, focalPersonId);
-  const sourcePeople = store.views[resolved.view] ?? {};
-  const focal = sourcePeople[resolved.personId];
+  const { people: sourcePeople, resolveId } = flattenStoreToCanonical(store);
+  const focalId = resolveId(sourceView, focalPersonId);
+  const focal = sourcePeople[focalId];
   if (!focal) {
     throw new Error('선택한 사람을 찾을 수 없습니다.');
   }
 
   const createdAt = nowIso();
-  const role = classifyFocal(sourcePeople, resolved.personId);
+  const role = classifyFocal(sourcePeople, focalId);
 
   let selfPeople: Record<PersonId, Person>;
-  let spousePeople: Record<PersonId, Person> = {};
+  let lineage: {
+    paternal: Record<PersonId, Person>;
+    maternal: Record<PersonId, Person>;
+    spouse: Record<PersonId, Person>;
+  };
 
   if (role === 'inlaw') {
-    const built = buildInLawRebasedViews(
-      sourcePeople,
-      resolved.personId,
-      resolved.view,
-      createdAt,
-    );
+    const built = buildInLawRebasedViews(sourcePeople, focalId, sourceView, createdAt);
     selfPeople = built.self;
-    spousePeople = built.spouse;
-  } else {
-    selfPeople = buildBloodCenteredView(
+    lineage = buildLineageViewsAround(
       sourcePeople,
-      resolved.personId,
-      'me',
-      resolved.view,
+      focalId,
+      sourceView,
       createdAt,
+      focalId,
+      built.spouse,
     );
+  } else {
+    selfPeople = buildBloodCenteredView(sourcePeople, focalId, 'me', sourceView, createdAt, {
+      keepFocalId: focalId,
+    });
+    lineage = buildLineageViewsAround(sourcePeople, focalId, sourceView, createdAt, focalId);
   }
 
-  const next: PedigreeStore = {
+  selfPeople = applyKinshipTitlesToView(selfPeople, 'self');
+  const paternal = applyKinshipTitlesToView(lineage.paternal, 'paternal', selfPeople);
+  const maternal = applyKinshipTitlesToView(lineage.maternal, 'maternal', selfPeople);
+  const spouse = applyKinshipTitlesToView(lineage.spouse, 'spouse', selfPeople);
+
+  return {
     version: 2,
     activeView: 'self',
     views: {
       self: selfPeople,
-      // 빈 뷰에서 sync가 실제 데이터만 채움(템플릿 유령 형제 방지)
-      paternal: {},
-      maternal: {},
-      spouse: spousePeople,
+      paternal,
+      maternal,
+      spouse,
     },
   };
-
-  return syncAllViews(next);
 }

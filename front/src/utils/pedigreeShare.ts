@@ -7,7 +7,9 @@ import { API_BASE_URL } from '../config/api';
 import type { PedigreeStore } from '../types/lineage';
 import type { ActiveView } from '../types/lineage';
 import type { Person, PersonId } from '../types/pedigree';
-import { rebaseStoreAroundPerson } from './rebasePedigree';
+import { rebaseStoreAroundPerson, rearrangePedigreeStore } from './rebasePedigree';
+import { reconcileStore } from './standardTemplate';
+import { syncAllViews } from './viewSync';
 
 const ALL_VIEWS: ActiveView[] = ['self', 'paternal', 'maternal', 'spouse'];
 const SHARE_DEVICE_ID_KEY = 'pedigree.share.deviceId.v1';
@@ -169,4 +171,13 @@ export async function fetchPedigreeShare(key: string): Promise<PedigreeStore> {
     activeView: 'self',
     views: store.views,
   };
+}
+
+/** 예전 내보내기는 친가/외가가 비어 있어 self에서 복구. 새 내보내기는 네 보기를 그대로 둔다. */
+export function hydrateImportedPedigreeStore(store: PedigreeStore): PedigreeStore {
+  const reconciled = reconcileStore(store);
+  const patEmpty = Object.keys(reconciled.views.paternal ?? {}).length === 0;
+  const matEmpty = Object.keys(reconciled.views.maternal ?? {}).length === 0;
+  const hydrated = patEmpty && matEmpty ? syncAllViews(reconciled) : reconciled;
+  return rearrangePedigreeStore(hydrated);
 }

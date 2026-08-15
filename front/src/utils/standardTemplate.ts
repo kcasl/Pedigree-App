@@ -28,6 +28,18 @@ export const VIEW_PREFIX: Record<ActiveView, ViewPrefix> = {
   spouse: 'spo',
 };
 
+/** 친할머니·외할머니 본가 부모 (증조 슬롯과 별개) */
+export function natalParentSlotIds(
+  view: ActiveView,
+  of: 'gm' | 'mgm',
+): { father: PersonId; mother: PersonId } {
+  const p = VIEW_PREFIX[view];
+  return {
+    father: `${p}_${of}_f`,
+    mother: `${p}_${of}_m`,
+  };
+}
+
 export type TemplateSlotIds = {
   ggf: PersonId;
   ggm: PersonId;
@@ -232,6 +244,7 @@ export function isGreatGrandparentNode(
   }
 
   if (/_m?ggf$/.test(person.id) || /_m?ggm$/.test(person.id)) return true;
+  if (/_(gm|mgm)_[fm]$/.test(person.id)) return true;
   const normalized = normalizeGreatAncestorDisplayName(person.name);
   return normalized === '증조할아버지' || normalized === '증조할머니';
 }
@@ -425,7 +438,7 @@ export function reconcileViewTemplate(
       continue;
     }
     // 형제/자녀는 이미 있는 부모 링크를 우선(재배치된 족보 유지)
-    const preserveParents = isOptionalBranchSlot(id, slots);
+    const preserveParents = isOptionalBranchSlot(id, slots) || isAncestorSlot(id);
     out[id] = mergePersonWithTemplate(template, existing, {
       id,
       fatherId: preserveParents

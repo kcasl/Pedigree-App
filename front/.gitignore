@@ -55,6 +55,9 @@ yarn-error.log
 
 # Bundle artifact
 *.jsbundle
+# Debug builds must load from Metro — never commit embedded Android bundles
+android/app/src/main/assets/index.android.bundle
+android/app/src/main/assets/index.android.bundle.map
 
 # Ruby / CocoaPods
 **/Pods/

@@ -11,10 +11,13 @@ import {
   buildChildOrdinalLabels,
   collectCoupleChildIds,
   isChildOfCouple,
+  assignSiblingSlotIndices,
+  siblingSlotBloodId,
+  orderedSiblingBloodIds,
 } from './birthOrder';
 import { buildKinshipLabels, childSpouseLabelFromParent, isSiblingBlood } from './kinship';
 import { buildSiblingKinshipLabels, siblingSpouseLabel } from './siblingKinship';
-import { SELF_SLOT_INDEX, slotIdsForView } from './standardTemplate';
+import { SELF_SLOT_INDEX, natalParentSlotIds, slotIdsForView } from './standardTemplate';
 import { nowIso } from './date';
 
 type LineageFocalView = 'paternal' | 'maternal';
@@ -286,6 +289,63 @@ function syncCoupleBranchTree(
       spouseId: spouseId && targetPeople[spouseId] ? spouseId : base.spouseId,
     };
   }
+}
+
+function syncNatalParentsOf(
+  selfPeople: Record<PersonId, Person>,
+  targetPeople: Record<PersonId, Person>,
+  selfChildId: PersonId,
+  targetChildId: PersonId,
+  targetPrefix: 'pat' | 'mat',
+): void {
+  const src = selfPeople[selfChildId];
+  const tgt = targetPeople[targetChildId];
+  if (!src || !tgt) return;
+  const me = slotIdsForView('self');
+  if (
+    src.fatherId === me.ggf ||
+    src.fatherId === me.mggf ||
+    src.motherId === me.ggm ||
+    src.motherId === me.mggm
+  ) {
+    return;
+  }
+
+  const remapId = (id: PersonId): PersonId =>
+    id.startsWith('me_')
+      ? (id.replace(/^me_/, `${targetPrefix}_`) as PersonId)
+      : (`${targetPrefix}_x_${id}` as PersonId);
+
+  const copyOne = (srcId: PersonId | undefined): PersonId | undefined => {
+    if (!srcId || !selfPeople[srcId]) return undefined;
+    const srcP = selfPeople[srcId];
+    const tgtId = remapId(srcId);
+    const existing = targetPeople[tgtId];
+    const base: Person = existing ?? {
+      id: tgtId,
+      name: srcP.name?.trim() ? srcP.name : '친족',
+      createdAt: srcP.createdAt || nowIso(),
+      gender: srcP.gender ?? 'unknown',
+    };
+    targetPeople[tgtId] = {
+      ...applyFieldsFromSource(srcP, base),
+      id: tgtId,
+    };
+    return tgtId;
+  };
+
+  const fatherId = copyOne(src.fatherId);
+  const motherId = copyOne(src.motherId);
+  if (fatherId && motherId) {
+    targetPeople[fatherId] = { ...targetPeople[fatherId], spouseId: motherId };
+    targetPeople[motherId] = { ...targetPeople[motherId], spouseId: fatherId };
+  }
+  if (!fatherId && !motherId) return;
+  targetPeople[targetChildId] = {
+    ...tgt,
+    fatherId: fatherId ?? tgt.fatherId,
+    motherId: motherId ?? tgt.motherId,
+  };
 }
 
 function templateSlotIdSet(view: ActiveView): Set<PersonId> {
@@ -695,6 +755,92 @@ function propagateFocalDescendantsToSelf(
 }
 
 /** 친가보기 — 아버지가 "나" 자리. 나 시점 아버지·친가 쪽 조상 정보를 복사 */
+/**
+ * self에서 아버지/어머니 형제(삼촌·고모·이모)를 친가/외가 형제 줄로 복사.
+ * 자식 기준 재배치 후 위쪽 방계가 빠지지 않게 한다.
+ */
+function syncAncestorSiblingsFromSelf(
+  selfPeople: Record<PersonId, Person>,
+  targetPeople: Record<PersonId, Person>,
+  view: LineageFocalView,
+): void {
+  const me = slotIdsForView('self');
+  const slots = slotIdsForView(view);
+  const prefix = view === 'paternal' ? 'pat' : 'mat';
+  const parentId = view === 'paternal' ? me.father : me.mother;
+  const parent = selfPeople[parentId];
+  if (!parent) return;
+
+  const srcGf = parent.fatherId;
+  const srcGm = parent.motherId;
+  if (!srcGf && !srcGm) return;
+
+  let pool = collectCoupleChildren(selfPeople, srcGf, srcGm);
+  if (!pool.includes(parentId)) pool = [...pool, parentId];
+  pool = pool.filter(id => !!selfPeople[id]);
+  if (pool.length <= 1) return;
+
+  const tgtGpFather = slots.father;
+  const tgtGpMother = slots.mother;
+  const sorted = sortIdsByBirth(pool, selfPeople);
+  const slotMap = assignSiblingSlotIndices(sorted, parentId);
+
+  for (const selfId of sorted) {
+    if (selfId === parentId) continue;
+    const src = selfPeople[selfId];
+    if (!src) continue;
+    const idx = slotMap.get(selfId);
+    if (idx == null) continue;
+    const targetId = siblingSlotBloodId(prefix, idx);
+    if (targetId === slots.selfId || targetId === slots.spouseId) continue;
+
+    const existing = targetPeople[targetId];
+    const base: Person = existing ?? {
+      id: targetId,
+      name: src.name?.trim() ? src.name : '친족',
+      createdAt: src.createdAt || nowIso(),
+      gender: src.gender ?? 'unknown',
+    };
+    const srcSpouseId =
+      src.spouseId && selfPeople[src.spouseId] ? src.spouseId : undefined;
+    const tgtSpouseId = srcSpouseId ? (`${targetId}_sp` as PersonId) : undefined;
+
+    targetPeople[targetId] = {
+      ...applyFieldsFromSource(src, base),
+      id: targetId,
+      fatherId: targetPeople[tgtGpFather] ? tgtGpFather : base.fatherId,
+      motherId: targetPeople[tgtGpMother] ? tgtGpMother : base.motherId,
+      spouseId: tgtSpouseId,
+    };
+
+    if (srcSpouseId && tgtSpouseId) {
+      const srcSp = selfPeople[srcSpouseId];
+      const existingSp = targetPeople[tgtSpouseId];
+      const spBase: Person = existingSp ?? {
+        id: tgtSpouseId,
+        name: srcSp.name?.trim() ? srcSp.name : '배우자',
+        createdAt: srcSp.createdAt || nowIso(),
+        gender: srcSp.gender ?? 'unknown',
+        spouseId: targetId,
+      };
+      targetPeople[tgtSpouseId] = {
+        ...applyFieldsFromSource(srcSp, spBase),
+        id: tgtSpouseId,
+        spouseId: targetId,
+      };
+    }
+
+    syncMappedDescendantTree(
+      selfPeople,
+      targetPeople,
+      selfId,
+      srcSpouseId,
+      targetId,
+      tgtSpouseId,
+    );
+  }
+}
+
 function syncPaternalFromSelf(
   selfPeople: Record<PersonId, Person>,
   patPeople: Record<PersonId, Person>,
@@ -720,6 +866,8 @@ function syncPaternalFromSelf(
 
   syncFocalChildrenFromSelf(selfPeople, patPeople, 'paternal');
   syncFocalDescendantsFromSelf(selfPeople, patPeople, 'paternal');
+  syncAncestorSiblingsFromSelf(selfPeople, patPeople, 'paternal');
+  syncNatalParentsOf(selfPeople, patPeople, me.gm, pat.mother, 'pat');
 }
 
 /** 외가보기 — 어머니가 "나" 자리 */
@@ -746,6 +894,8 @@ function syncMaternalFromSelf(
   syncFocalChildrenFromSelf(selfPeople, matPeople, 'maternal');
   syncFocalDescendantsFromSelf(selfPeople, matPeople, 'maternal');
   syncMaternalSideBranchFromSelf(selfPeople, matPeople);
+  syncAncestorSiblingsFromSelf(selfPeople, matPeople, 'maternal');
+  syncNatalParentsOf(selfPeople, matPeople, me.mgm, mat.mother, 'mat');
 }
 
 /** 배우자 집안 — 배우자가 "나" 자리, 나는 배우자 옆 */
@@ -1019,7 +1169,7 @@ export type ParentAddResolution =
       status: 'ok';
       /** 생성·갱신할 부모 id (증조 슬롯 또는 신규 id) */
       parentId: PersonId;
-      /** fatherId/motherId를 걸 자녀 (조부모 부부면 혈연 조부) */
+      /** fatherId/motherId를 걸 자녀 */
       linkChildId: PersonId;
       /** 반대쪽 부모 슬롯/id (배우자 연결용, 노드가 있을 때만 연결) */
       otherParentId?: PersonId;
@@ -1030,7 +1180,8 @@ export type ParentAddResolution =
 
 /**
  * 부모 추가 시 슬롯·링크 대상 결정.
- * 친/외 조부모 카드 → 증조(ggf/ggm·mggf/mggm) 슬롯을 채운다.
+ * 친할아버지·외할아버지 → 증조 슬롯.
+ * 친할머니·외할머니 → 본인에게 본가 부모를 붙인다 (배우자 증조 슬롯에 넣지 않음).
  */
 export function resolveParentAdd(
   view: ActiveView,
@@ -1046,14 +1197,24 @@ export function resolveParentAdd(
   let slotFather: PersonId | undefined;
   let slotMother: PersonId | undefined;
 
-  if (childId === slots.gf || childId === slots.gm) {
+  if (childId === slots.gf) {
     linkChildId = slots.gf;
     slotFather = slots.ggf;
     slotMother = slots.ggm;
-  } else if (childId === slots.mgf || childId === slots.mgm) {
+  } else if (childId === slots.gm) {
+    linkChildId = slots.gm;
+    const natal = natalParentSlotIds(view, 'gm');
+    slotFather = natal.father;
+    slotMother = natal.mother;
+  } else if (childId === slots.mgf) {
     linkChildId = slots.mgf;
     slotFather = slots.mggf;
     slotMother = slots.mggm;
+  } else if (childId === slots.mgm) {
+    linkChildId = slots.mgm;
+    const natal = natalParentSlotIds(view, 'mgm');
+    slotFather = natal.father;
+    slotMother = natal.mother;
   }
 
   const linkChild = people[linkChildId];
@@ -1218,9 +1379,7 @@ function applyLineageFocalKinshipLabels(
     labels[focal.spouseId] = '배우자';
   }
 
-  const siblingBloodIds = slots.siblings
-    .map(s => s.blood)
-    .filter(id => id && id !== focalId && peopleById[id]);
+  const siblingBloodIds = orderedSiblingBloodIds(peopleById, focalId, view, slots);
   Object.assign(labels, buildSiblingKinshipLabels(peopleById, focalId, siblingBloodIds));
 
   for (const sib of slots.siblings) {
@@ -1228,7 +1387,7 @@ function applyLineageFocalKinshipLabels(
     const blood = peopleById[sib.blood];
     if (!blood?.spouseId || !peopleById[blood.spouseId]) continue;
     if (isSiblingBlood(focal, blood)) {
-      labels[blood.spouseId] = siblingSpouseLabel(focal, blood);
+      labels[blood.spouseId] = siblingSpouseLabel(focal, blood, siblingBloodIds);
     }
   }
 
@@ -1259,7 +1418,7 @@ export function buildViewKinshipLabels(
   if (view === 'paternal' || view === 'maternal') {
     applyLineageFocalKinshipLabels(view, peopleById, focalId, slots, labels, selfRef);
   } else {
-    const siblingBloodIds = slots.siblings.map(s => s.blood).filter(id => peopleById[id]);
+    const siblingBloodIds = orderedSiblingBloodIds(peopleById, focalId, view, slots);
     Object.assign(labels, buildSiblingKinshipLabels(peopleById, focalId, siblingBloodIds));
   }
 

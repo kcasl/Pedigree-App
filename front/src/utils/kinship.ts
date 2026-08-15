@@ -1,5 +1,5 @@
 import type { Person, PersonId } from '../types/pedigree';
-import { compareAgeToSelf } from './birthOrder';
+import { compareAgeByBirthDate, compareAgeToSelf } from './birthOrder';
 import { siblingSpouseLabel } from './siblingKinship';
 
 type Gender = Person['gender'];
@@ -117,7 +117,29 @@ function siblingLabel(self: Person, target: Person): string {
   return '형제';
 }
 
-function labelFromCode(code: string, self: Person, target: Person): string {
+function paternalUncleLabel(
+  self: Person,
+  uncle: Person,
+  people?: Record<PersonId, Person>,
+): string {
+  const father = people && self.fatherId ? people[self.fatherId] : undefined;
+  if (father) {
+    const byBirth = compareAgeByBirthDate(father, uncle);
+    if (byBirth === 'older') return '큰아버지';
+    if (byBirth === 'younger') return '삼촌';
+    const byAge = compareAgeToSelf(father, uncle);
+    if (byAge === 'older') return '큰아버지';
+    if (byAge === 'younger') return '삼촌';
+  }
+  return '삼촌';
+}
+
+function labelFromCode(
+  code: string,
+  self: Person,
+  target: Person,
+  people?: Record<PersonId, Person>,
+): string {
   if (code === '') return '나';
   if (/^[HWP]$/.test(code)) return '배우자';
 
@@ -158,7 +180,7 @@ function labelFromCode(code: string, self: Person, target: Person): string {
 
   if (/^F(F|M)[SDC]$/.test(code)) {
     if (target.gender === 'female') return '고모';
-    return '백부/숙부';
+    return paternalUncleLabel(self, target, people);
   }
   if (/^M(F|M)[SDC]$/.test(code)) {
     if (target.gender === 'female') return '이모';
@@ -215,6 +237,9 @@ const PRIORITY: Record<string, number> = {
   증조모: 91,
   백부: 90,
   숙부: 90,
+  큰아버지: 90,
+  삼촌: 90,
+  '백부/숙부': 90,
   고모: 90,
   외삼촌: 90,
   이모: 90,
@@ -264,13 +289,18 @@ const PRIORITY: Record<string, number> = {
   친족: 1,
 };
 
-function bestLabel(codes: string[], self: Person, target: Person): string {
+function bestLabel(
+  codes: string[],
+  self: Person,
+  target: Person,
+  people?: Record<PersonId, Person>,
+): string {
   if (codes.length === 0) return '친족';
   let selected = '친족';
-  let score = PRIORITY[selected] ?? 0;
+  let score = -1;
   for (const code of codes) {
-    const label = labelFromCode(code, self, target);
-    const nextScore = PRIORITY[label] ?? 0;
+    const label = labelFromCode(code, self, target, people);
+    const nextScore = PRIORITY[label] ?? 50;
     if (nextScore > score) {
       selected = label;
       score = nextScore;
@@ -411,7 +441,7 @@ export function buildKinshipLabels(
   for (const id of Object.keys(peopleById)) {
     const target = peopleById[id];
     const codes = shortestCodes(adj, selfId, id);
-    let label = bestLabel(codes, self, target);
+    let label = bestLabel(codes, self, target, peopleById);
 
     const inLawLabel = resolveInLawLabel(self, target, peopleById);
     if (inLawLabel) {
@@ -421,4 +451,17 @@ export function buildKinshipLabels(
     out[id] = label;
   }
   return out;
+}
+
+/** 카드 이름칸에 쓸 호칭 — 부/모 같은 짧은 코드를 족보 표기로 */
+export function kinshipLabelToDisplayName(label: string, person: Person): string {
+  if (label === '본인') return '나';
+  if (label === '부') return '아버지';
+  if (label === '모') return '어머니';
+  if (label === '조부') return '친할아버지';
+  if (label === '조모') return '친할머니';
+  if (label === '외조부') return '외할아버지';
+  if (label === '외조모') return '외할머니';
+  if (label === '자식') return person.gender === 'female' ? '딸' : '아들';
+  return label;
 }

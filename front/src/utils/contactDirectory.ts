@@ -2,7 +2,7 @@ import type { ActiveView, PedigreeStore } from '../types/lineage';
 import { ACTIVE_VIEW_LABEL } from '../types/lineage';
 import type { PersonId } from '../types/pedigree';
 import { buildViewKinshipLabels } from './viewSync';
-import { lineageGroupsForPerson } from './kinship';
+import { kinshipLabelToDisplayName, lineageGroupsForPerson } from './kinship';
 import { normalizePhoneDigits } from './phone';
 import { slotIdsForView } from './standardTemplate';
 
@@ -86,7 +86,10 @@ export function buildContactDirectoryEntries(store: PedigreeStore): ContactDirec
         byPhone.set(phone, {
           name: person.name?.trim() || '이름 없음',
           phone,
-          kinshipLabel: labels[person.id] ?? person.name ?? '친족',
+          kinshipLabel: kinshipLabelToDisplayName(
+            labels[person.id] ?? person.name ?? '친족',
+            person,
+          ),
           viewLabels: new Set([ACTIVE_VIEW_LABEL[view]]),
           primaryLineage: lineage,
         });
@@ -95,7 +98,9 @@ export function buildContactDirectoryEntries(store: PedigreeStore): ContactDirec
 
       existing.viewLabels.add(ACTIVE_VIEW_LABEL[view]);
       if (person.name?.trim()) existing.name = person.name.trim();
-      if (labels[person.id]) existing.kinshipLabel = labels[person.id];
+      if (labels[person.id]) {
+        existing.kinshipLabel = kinshipLabelToDisplayName(labels[person.id], person);
+      }
 
       if (view === 'self' && lineage != null) {
         existing.primaryLineage = lineage;

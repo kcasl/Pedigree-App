@@ -75,4 +75,19 @@ describe('buildSiblingKinshipLabels', () => {
     expect(labels.me_sib1).toBe('언니');
     expect(labels.me_sib1_sp).toBe('형부');
   });
+
+  it('uses layout side when birth dates are missing', () => {
+    const selfId = 'me_sib2';
+    const people = {
+      [selfId]: person(selfId, 'male', ''),
+      me_sib1: person('me_sib1', 'female', ''),
+      me_sib3: person('me_sib3', 'female', ''),
+    };
+    delete people[selfId].birthDate;
+    delete people.me_sib1.birthDate;
+    delete people.me_sib3.birthDate;
+    const labels = buildSiblingKinshipLabels(people, selfId, ['me_sib1', selfId, 'me_sib3']);
+    expect(labels.me_sib1).toBe('누나');
+    expect(labels.me_sib3).toBe('여동생');
+  });
 });

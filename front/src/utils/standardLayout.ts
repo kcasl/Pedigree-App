@@ -12,7 +12,9 @@ import {
 } from './standardTemplate';
 import {
   collectCoupleChildIds,
+  compareRelativesForLayout,
   defaultSiblingBloodOrder,
+  isOlderRelative,
   orderSiblingCouplesAroundFocal,
   sortChildIdsForLayout,
 } from './birthOrder';
@@ -80,21 +82,43 @@ function unitW(opts: StandardLayoutOptions): number {
   return opts.cardWidth * 2 + opts.spouseGap;
 }
 
-function coupleCenterX(
-  rowStartX: number,
-  coupleIndex: number,
-  opts: StandardLayoutOptions,
-): number {
-  const uw = unitW(opts);
-  return rowStartX + coupleIndex * (uw + opts.coupleGap) + uw / 2;
+/** 그룹 전체 너비의 가운데를 midX에 맞춘다. */
+function packRowCentered(widths: number[], gap: number, midX: number): number[] {
+  if (!widths.length) return [];
+  const total =
+    widths.reduce((acc, w) => acc + w, 0) + Math.max(0, widths.length - 1) * gap;
+  let x = midX - total / 2;
+  return widths.map(w => {
+    const center = x + w / 2;
+    x += w + gap;
+    return center;
+  });
 }
 
-function computeEdges(people: Record<PersonId, Person>): Edge[] {
-  const ids = new Set(Object.keys(people));
+function recenterUnitGroup(units: UnitCenter[], targetMid: number): void {
+  if (!units.length) return;
+  const left = Math.min(...units.map(u => u.centerX - u.coupleWidth / 2));
+  const right = Math.max(...units.map(u => u.centerX + u.coupleWidth / 2));
+  const shift = targetMid - (left + right) / 2;
+  if (!Number.isFinite(shift) || Math.abs(shift) < 0.5) return;
+  units.forEach(u => {
+    u.centerX += shift;
+  });
+}
+
+function computeEdges(
+  people: Record<PersonId, Person>,
+  nodeById: Record<PersonId, PositionedNode>,
+): Edge[] {
   const edges: Edge[] = [];
   for (const p of Object.values(people)) {
-    if (p.fatherId && ids.has(p.fatherId)) edges.push({ parentId: p.fatherId, childId: p.id });
-    if (p.motherId && ids.has(p.motherId)) edges.push({ parentId: p.motherId, childId: p.id });
+    if (!nodeById[p.id]) continue;
+    if (p.fatherId && nodeById[p.fatherId]) {
+      edges.push({ parentId: p.fatherId, childId: p.id });
+    }
+    if (p.motherId && nodeById[p.motherId]) {
+      edges.push({ parentId: p.motherId, childId: p.id });
+    }
   }
   return edges;
 }
@@ -176,6 +200,9 @@ function sideBranchParentIds(
     slots.mggm,
   ] as PersonId[]) {
     if (!people[slotId]) continue;
+    const person = people[slotId];
+    if (person.fatherId && people[person.fatherId]) ids.add(person.fatherId);
+    if (person.motherId && people[person.motherId]) ids.add(person.motherId);
     for (const c of collectBloodSiblingCouples(people, slotId)) {
       addCouple(c.blood, c.spouse);
     }
@@ -189,14 +216,49 @@ function collectBloodSiblingCouples(
   anchorId: PersonId,
 ): Array<{ blood: PersonId; spouse?: PersonId }> {
   const anchor = people[anchorId];
-  if (!anchor?.fatherId || !anchor?.motherId) return [];
-  return collectChildren(people, anchor.fatherId, anchor.motherId)
+  if (!anchor) return [];
+  const fatherId =
+    anchor.fatherId && people[anchor.fatherId] ? anchor.fatherId : undefined;
+  const motherId =
+    anchor.motherId && people[anchor.motherId] ? anchor.motherId : undefined;
+  if (!fatherId && !motherId) return [];
+  return collectChildren(
+    people,
+    (fatherId ?? motherId)!,
+    fatherId && motherId ? motherId : undefined,
+  )
     .filter(id => id !== anchorId && people[id])
     .map(id => ({
       blood: id,
       spouse:
         people[id]?.spouseId && people[people[id].spouseId!] ? people[id].spouseId : undefined,
     }));
+}
+
+function partitionCouplesByAge(
+  couples: Array<{ blood: PersonId; spouse?: PersonId }>,
+  anchor: Person | undefined,
+  people: Record<PersonId, Person>,
+): {
+  older: Array<{ blood: PersonId; spouse?: PersonId }>;
+  younger: Array<{ blood: PersonId; spouse?: PersonId }>;
+} {
+  const present = couples.filter(c => people[c.blood]);
+  const older: typeof present = [];
+  const younger: typeof present = [];
+  for (const couple of present) {
+    const person = people[couple.blood];
+    if (!person) continue;
+    if (anchor && !isOlderRelative(anchor, person)) younger.push(couple);
+    else older.push(couple);
+  }
+  const byAge = (
+    a: { blood: PersonId },
+    b: { blood: PersonId },
+  ) => compareRelativesForLayout(people[a.blood]!, people[b.blood]!);
+  older.sort(byAge);
+  younger.sort(byAge);
+  return { older, younger };
 }
 
 function collectChildren(
@@ -216,6 +278,266 @@ function personCenterInCouple(
   if (!hasSpouse) return coupleLeftX + opts.cardWidth / 2;
   if (role === 'blood') return coupleLeftX + opts.cardWidth / 2;
   return coupleLeftX + opts.cardWidth + opts.spouseGap + opts.cardWidth / 2;
+}
+
+function parentCoupleIds(
+  people: Record<PersonId, Person>,
+  person: Person | undefined,
+): { blood: PersonId; spouse?: PersonId } | null {
+  if (!person) return null;
+  const fatherId =
+    person.fatherId && people[person.fatherId] ? person.fatherId : undefined;
+  const motherId =
+    person.motherId && people[person.motherId] ? person.motherId : undefined;
+  if (!fatherId && !motherId) return null;
+  if (fatherId) return { blood: fatherId, spouse: motherId };
+  return { blood: motherId!, spouse: fatherId };
+}
+
+type NatalCouple = { blood: PersonId; spouse?: PersonId };
+
+function natalCoupleKey(couple: NatalCouple): string {
+  return [couple.blood, couple.spouse ?? ''].sort().join('|');
+}
+
+function natalCoupleWidth(
+  couple: NatalCouple,
+  people: Record<PersonId, Person>,
+  opts: StandardLayoutOptions,
+): number {
+  return couple.spouse && people[couple.spouse] ? unitW(opts) : opts.cardWidth;
+}
+
+/** 조부·조모·외조부·외조모 각각의 부모 부부. 같은 부모를 공유하면 한 번만. */
+function collectGrandparentParentCouples(
+  people: Record<PersonId, Person>,
+  slots: ReturnType<typeof slotIdsForView>,
+): Array<{ blood: PersonId; spouse?: PersonId; childId: PersonId }> {
+  const out: Array<{ blood: PersonId; spouse?: PersonId; childId: PersonId }> = [];
+  const seen = new Set<string>();
+  const add = (childId: PersonId) => {
+    const couple = parentCoupleIds(people, people[childId]);
+    if (!couple) return;
+    const key = natalCoupleKey(couple);
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ ...couple, childId });
+  };
+  add(slots.gf);
+  add(slots.gm);
+  add(slots.mgf);
+  add(slots.mgm);
+  return out;
+}
+
+type GrandparentSidePlan = {
+  gfId?: PersonId;
+  gmId?: PersonId;
+  tight: boolean;
+  coupleX: number;
+  gfX: number;
+  gmX: number;
+  greats: Array<NatalCouple & { x: number }>;
+};
+
+/**
+ * 증조 부부를 자식(조부/조모) 바로 위에 둔다.
+ * 둘 다 서로 다른 부모가 있으면 조부·조모를 벌려 증조 부부가 겹치지 않게 한다.
+ */
+function planGrandparentSide(
+  people: Record<PersonId, Person>,
+  gfId: PersonId | undefined,
+  gmId: PersonId | undefined,
+  defaultCoupleX: number,
+  opts: StandardLayoutOptions,
+): GrandparentSidePlan {
+  const uw = unitW(opts);
+  const cw = opts.cardWidth;
+  const gap = Math.max(opts.coupleGap, 56);
+  const hasGf = !!(gfId && people[gfId]);
+  const hasGm = !!(gmId && people[gmId]);
+  const gfP = hasGf ? parentCoupleIds(people, people[gfId!]) : null;
+  const gmP = hasGm ? parentCoupleIds(people, people[gmId!]) : null;
+  const distinct = !!(gfP && gmP && natalCoupleKey(gfP) !== natalCoupleKey(gmP));
+
+  const coupleX = defaultCoupleX;
+  const gfX = coupleX;
+  const gmX = hasGf && hasGm ? coupleX + cw + opts.spouseGap : coupleX;
+
+  const alignGreat = (couple: NatalCouple, childCenter: number) => ({
+    ...couple,
+    x: childCenter - natalCoupleWidth(couple, people, opts) / 2,
+  });
+
+  if (!distinct) {
+    const greats: GrandparentSidePlan['greats'] = [];
+    if (gfP && gmP && natalCoupleKey(gfP) === natalCoupleKey(gmP)) {
+      const coupleCenter = hasGf && hasGm ? coupleX + uw / 2 : coupleX + cw / 2;
+      greats.push(alignGreat(gfP, coupleCenter));
+    } else {
+      if (gfP && hasGf) greats.push(alignGreat(gfP, gfX + cw / 2));
+      if (gmP && hasGm) greats.push(alignGreat(gmP, gmX + cw / 2));
+    }
+    return {
+      gfId: hasGf ? gfId : undefined,
+      gmId: hasGm ? gmId : undefined,
+      tight: true,
+      coupleX,
+      gfX,
+      gmX,
+      greats,
+    };
+  }
+
+  const groupCenter = hasGf && hasGm ? defaultCoupleX + uw / 2 : defaultCoupleX + cw / 2;
+  const inner = uw + gap;
+  const gfCenter = groupCenter - inner / 2;
+  const gmCenter = groupCenter + inner / 2;
+  return {
+    gfId,
+    gmId,
+    tight: false,
+    coupleX,
+    gfX: gfCenter - cw / 2,
+    gmX: gmCenter - cw / 2,
+    greats: [alignGreat(gfP!, gfCenter), alignGreat(gmP!, gmCenter)],
+  };
+}
+
+function boundsOfIds(
+  ids: PersonId[],
+  nodeById: Record<PersonId, PositionedNode>,
+): { minX: number; maxX: number } {
+  let minX = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  for (const id of ids) {
+    const n = nodeById[id];
+    if (!n) continue;
+    minX = Math.min(minX, n.x);
+    maxX = Math.max(maxX, n.x + n.width);
+  }
+  return { minX, maxX };
+}
+
+function placeGrandparentSideFromPlan(
+  plan: GrandparentSidePlan,
+  nodes: PositionedNode[],
+  nodeById: Record<PersonId, PositionedNode>,
+  people: Record<PersonId, Person>,
+  yGrand: number,
+  yGreat: number,
+  yParent: number,
+  opts: StandardLayoutOptions,
+): { sideBranches: SideBranch[]; memberIds: PersonId[] } {
+  const memberIds: PersonId[] = [];
+  const add = (id?: PersonId) => {
+    if (id && people[id]) memberIds.push(id);
+  };
+  const sideBranches: SideBranch[] = [];
+  const cw = opts.cardWidth;
+
+  const absorbCluster = (cluster: {
+    sideBranches: SideBranch[];
+  }) => {
+    cluster.sideBranches.forEach(branch => {
+      sideBranches.push(branch);
+      branch.memberIds.forEach(add);
+    });
+  };
+
+  if (plan.tight && plan.gfId) {
+    const cluster = placeGrandCoupleCluster(
+      nodes,
+      nodeById,
+      people,
+      plan.gfId,
+      plan.gmId && people[plan.gmId] ? plan.gmId : undefined,
+      plan.coupleX,
+      yGrand,
+      -2,
+      opts,
+      yParent,
+      -1,
+    );
+    add(plan.gfId);
+    add(plan.gmId);
+    absorbCluster(cluster);
+  } else if (plan.tight && plan.gmId) {
+    placeCoupleNode(nodes, nodeById, plan.gmId, undefined, plan.coupleX, yGrand, -2, opts);
+    add(plan.gmId);
+  } else if (!plan.tight) {
+    if (plan.gfId) {
+      placeCoupleNode(nodes, nodeById, plan.gfId, undefined, plan.gfX, yGrand, -2, opts);
+      add(plan.gfId);
+      const leftBounds = placeCouplesOneSide(
+        nodes,
+        nodeById,
+        collectBloodSiblingCouples(people, plan.gfId),
+        plan.gfX + cw / 2,
+        'left',
+        yGrand,
+        -2,
+        opts,
+        people,
+      );
+      leftBounds.placed.forEach(p => {
+        const ids = [p.blood, p.spouse].filter(Boolean) as PersonId[];
+        ids.forEach(add);
+        sideBranches.push({
+          side: 'left',
+          anchorCenterX: p.centerX,
+          anchorY: yGrand,
+          bloodId: p.blood,
+          spouseId: p.spouse,
+          memberIds: ids,
+          descendantRowY: yParent,
+          descendantGeneration: -1,
+        });
+      });
+    }
+    if (plan.gmId) {
+      placeCoupleNode(nodes, nodeById, plan.gmId, undefined, plan.gmX, yGrand, -2, opts);
+      add(plan.gmId);
+      const rightBounds = placeCouplesOneSide(
+        nodes,
+        nodeById,
+        collectBloodSiblingCouples(people, plan.gmId),
+        plan.gmX + cw / 2,
+        'right',
+        yGrand,
+        -2,
+        opts,
+        people,
+      );
+      rightBounds.placed.forEach(p => {
+        const ids = [p.blood, p.spouse].filter(Boolean) as PersonId[];
+        ids.forEach(add);
+        sideBranches.push({
+          side: 'right',
+          anchorCenterX: p.centerX,
+          anchorY: yGrand,
+          bloodId: p.blood,
+          spouseId: p.spouse,
+          memberIds: ids,
+          descendantRowY: yParent,
+          descendantGeneration: -1,
+        });
+      });
+    }
+    if (plan.gfId && plan.gmId && nodeById[plan.gfId] && nodeById[plan.gmId]) {
+      nodeById[plan.gfId].partnerId = plan.gmId;
+      nodeById[plan.gmId].partnerId = plan.gfId;
+    }
+  }
+
+  for (const g of plan.greats) {
+    const spouse = g.spouse && people[g.spouse] ? g.spouse : undefined;
+    placeCoupleNode(nodes, nodeById, g.blood, spouse, g.x, yGreat, -3, opts);
+    add(g.blood);
+    add(spouse);
+  }
+
+  return { sideBranches, memberIds };
 }
 
 type PlacedCouple = {
@@ -252,6 +574,19 @@ function refreshSideBranchAnchor(
   }
 }
 
+/** 윗세대 형제: 연장자 먼저. 왼쪽 배치는 연장자가 바깥이 되도록 뒤집는다. */
+function orderCouplesForSide(
+  couples: Array<{ blood: PersonId; spouse?: PersonId }>,
+  people: Record<PersonId, Person>,
+  direction: 'left' | 'right',
+): Array<{ blood: PersonId; spouse?: PersonId }> {
+  const present = couples.filter(c => people[c.blood]);
+  const sorted = [...present].sort((a, b) =>
+    compareRelativesForLayout(people[a.blood]!, people[b.blood]!),
+  );
+  return direction === 'left' ? [...sorted].reverse() : sorted;
+}
+
 /** 조부모 친형제 — anchor 기준 한쪽(왼/오)으로만 배치 */
 function placeCouplesOneSide(
   nodes: PositionedNode[],
@@ -264,24 +599,28 @@ function placeCouplesOneSide(
   opts: StandardLayoutOptions,
   people: Record<PersonId, Person>,
 ): { minX: number; maxX: number; placed: PlacedCouple[] } {
-  if (!couples.length) {
+  const ordered = orderCouplesForSide(couples, people, direction);
+  if (!ordered.length) {
     return { minX: anchorCenterX, maxX: anchorCenterX, placed: [] };
   }
   const uw = unitW(opts);
-  const step = uw + opts.coupleGap;
+  const gap = opts.coupleGap;
+  const cardHalf = opts.cardWidth / 2;
+  let cursor =
+    direction === 'left' ? anchorCenterX - cardHalf - gap : anchorCenterX + cardHalf + gap;
   let minX = Number.POSITIVE_INFINITY;
   let maxX = Number.NEGATIVE_INFINITY;
   const placed: PlacedCouple[] = [];
-  couples.forEach((couple, i) => {
-    const offset = (i + 1) * step;
-    const centerX = direction === 'left' ? anchorCenterX - offset : anchorCenterX + offset;
-    const x = centerX - uw / 2;
+  ordered.forEach(couple => {
     const sp = couple.spouse && people[couple.spouse] ? couple.spouse : undefined;
-    placeCoupleNode(nodes, nodeById, couple.blood, sp, x, y, gen, opts);
     const w = sp ? uw : opts.cardWidth;
+    const x = direction === 'left' ? cursor - w : cursor;
+    const centerX = x + w / 2;
+    placeCoupleNode(nodes, nodeById, couple.blood, sp, x, y, gen, opts);
     minX = Math.min(minX, x);
     maxX = Math.max(maxX, x + w);
     placed.push({ blood: couple.blood, spouse: sp, centerX, coupleLeftX: x });
+    cursor = direction === 'left' ? x - gap : x + w + gap;
   });
   return { minX, maxX, placed };
 }
@@ -431,6 +770,7 @@ function layoutSideBranchDescendants(
   placedDescendantIds: Set<PersonId>,
   yGrandchildRow: number,
   clearanceYLevels: number[],
+  peerBranches: SideBranch[] = [],
 ): void {
   const kids = collectChildren(people, branch.bloodId, branch.spouseId).filter(
     id => people[id] && !placedDescendantIds.has(id),
@@ -469,8 +809,20 @@ function layoutSideBranchDescendants(
     opts,
   );
   if (Math.abs(shift) > 0.5) {
+    const originalCenter = branch.anchorCenterX;
     shiftNodesByIds(branch.memberIds, shift, nodeById);
     branch.anchorCenterX += shift;
+    peerBranches.forEach(peer => {
+      if (peer.bloodId === branch.bloodId) return;
+      if (peer.side !== branch.side || peer.anchorY !== branch.anchorY) return;
+      const isOuter =
+        direction === 'left'
+          ? peer.anchorCenterX <= originalCenter
+          : peer.anchorCenterX >= originalCenter;
+      if (!isOuter) return;
+      shiftNodesByIds(peer.memberIds, shift, nodeById);
+      peer.anchorCenterX += shift;
+    });
     unit.centerX = branch.anchorCenterX;
     placements = rebuildGroupPlacements(unit, entries, opts);
   }
@@ -1046,12 +1398,30 @@ export function buildStandardPedigreeLayout(
   }
 
   const coupleCount = Math.max(1, siblingCouples.length);
+  const siblingWidths = siblingCouples.map(couple =>
+    couple.spouse && people[couple.spouse] ? uw : opts.cardWidth,
+  );
+  while (siblingWidths.length < coupleCount) siblingWidths.push(uw);
 
-  const rowW = coupleCount * uw + (coupleCount - 1) * opts.coupleGap;
-  const canvasWidth = Math.max(1600, rowW + opts.padding * 2 + 240);
+  const greatCouples = collectGrandparentParentCouples(people, slots);
+  const greatGap = Math.max(opts.coupleGap, 56);
+  const greatRowW =
+    greatCouples.length === 0
+      ? 0
+      : greatCouples.length >= 2
+        ? 4 * uw + 3 * greatGap
+        : uw;
+
+  const packedGap = opts.coupleGap;
+  const rowW =
+    siblingWidths.reduce((acc, w) => acc + w, 0) +
+    Math.max(0, siblingCouples.length - 1) * packedGap;
+  const canvasWidth = Math.max(
+    1600,
+    rowW + opts.padding * 2 + 240,
+    greatRowW + opts.padding * 2 + 240,
+  );
   const centerX = canvasWidth / 2;
-  const siblingRowStartX = centerX - rowW / 2;
-  const focalLayoutIndex = Math.max(0, Math.min(focalIndex, coupleCount - 1));
 
   // 형제 추가 시 옆 자식 줄과 겹치지 않도록 간격만 선계산
   const childEntriesByCouple: ChildEntry[][] = siblingCouples.map(couple => {
@@ -1087,9 +1457,7 @@ export function buildStandardPedigreeLayout(
       };
     });
   });
-  const siblingCenters = Array.from({ length: coupleCount }, (_, i) =>
-    coupleCenterX(siblingRowStartX, i, opts),
-  );
+  const siblingCenters = packRowCentered(siblingWidths, packedGap, centerX);
 
   const nodes: PositionedNode[] = [];
   const nodeById: Record<PersonId, PositionedNode> = {};
@@ -1098,12 +1466,7 @@ export function buildStandardPedigreeLayout(
   const ancestorSideBranches: SideBranch[] = [];
   const placedSideDescendantIds = new Set<PersonId>();
 
-  const hasGreat = !!(
-    people[slots.ggf] ||
-    people[slots.ggm] ||
-    people[slots.mggf] ||
-    people[slots.mggm]
-  );
+  const hasGreat = greatCouples.length > 0;
   const ancestorRows = hasGreat ? 3 : 2;
   const ySibling = opts.padding + opts.rowGap * ancestorRows;
   const yParent = ySibling - opts.rowGap;
@@ -1111,25 +1474,24 @@ export function buildStandardPedigreeLayout(
   const yGreat = yGrand - opts.rowGap;
   const yChild = ySibling + opts.rowGap;
 
-  const focalCenterX =
-    siblingCenters[Math.max(0, Math.min(focalLayoutIndex, siblingCenters.length - 1))];
-  const parentCoupleX = focalCenterX - uw / 2;
-  const fatherCenterX = parentCoupleX + opts.cardWidth / 2;
-  const motherCenterX = parentCoupleX + opts.cardWidth + opts.spouseGap + opts.cardWidth / 2;
+  const parentHasMother = !!people[slots.mother];
+  const parentUnitW = parentHasMother ? uw : opts.cardWidth;
+  const parentCoupleX = centerX - parentUnitW / 2;
   const hasPaternalGrand = !!people[slots.gf];
   const hasMaternalGrand = !!people[slots.mgf];
   const paternalGrandX =
     hasPaternalGrand && hasMaternalGrand
-      ? focalCenterX - opts.coupleGap / 2 - uw
-      : fatherCenterX - uw / 2;
+      ? centerX - opts.coupleGap / 2 - uw
+      : parentCoupleX;
   const maternalGrandX =
     hasPaternalGrand && hasMaternalGrand
-      ? focalCenterX + opts.coupleGap / 2
-      : motherCenterX - uw / 2;
+      ? centerX + opts.coupleGap / 2
+      : parentCoupleX;
 
   siblingCouples.forEach((couple, i) => {
     if (!people[couple.blood]) return;
-    const x = siblingCenters[i] - uw / 2;
+    const width = siblingWidths[i] ?? opts.cardWidth;
+    const x = siblingCenters[i] - width / 2;
     placeCoupleNode(
       nodes,
       nodeById,
@@ -1151,6 +1513,17 @@ export function buildStandardPedigreeLayout(
     const motherBloodSiblings = hasMother
       ? collectBloodSiblingCouples(people, slots.mother)
       : [];
+    const { older: fatherOlder, younger: fatherYounger } = partitionCouplesByAge(
+      fatherBloodSiblings,
+      people[slots.father],
+      people,
+    );
+    const motherSorted = partitionCouplesByAge(
+      motherBloodSiblings,
+      people[slots.mother],
+      people,
+    );
+    const rightOfCouple = [...fatherYounger, ...motherSorted.older, ...motherSorted.younger];
     const fatherCenter = personCenterInCouple(parentCoupleX, 'blood', hasMother, opts);
     const motherCenter = hasMother
       ? personCenterInCouple(parentCoupleX, 'spouse', true, opts)
@@ -1159,7 +1532,7 @@ export function buildStandardPedigreeLayout(
     const leftPlaced = placeCouplesOneSide(
       nodes,
       nodeById,
-      fatherBloodSiblings,
+      fatherOlder,
       fatherCenter,
       'left',
       yParent,
@@ -1189,11 +1562,11 @@ export function buildStandardPedigreeLayout(
       -1,
       opts,
     );
-    if (motherBloodSiblings.length) {
+    if (rightOfCouple.length) {
       const rightPlaced = placeCouplesOneSide(
         nodes,
         nodeById,
-        motherBloodSiblings,
+        rightOfCouple,
         motherCenter,
         'right',
         yParent,
@@ -1215,126 +1588,70 @@ export function buildStandardPedigreeLayout(
       });
     }
   }
-  if (people[slots.gf]) {
-    const grandCluster = placeGrandCoupleCluster(
-      nodes,
-      nodeById,
-      people,
-      slots.gf,
-      people[slots.gm] ? slots.gm : undefined,
-      paternalGrandX,
-      yGrand,
-      -2,
-      opts,
-      yParent,
-      -1,
-    );
-    ancestorSideBranches.push(...grandCluster.sideBranches);
-  } else if (people[slots.gm]) {
-    placeCoupleNode(
-      nodes,
-      nodeById,
-      slots.gm,
-      undefined,
-      paternalGrandX,
-      yGrand,
-      -2,
-      opts,
-    );
+  const paternalPlan = planGrandparentSide(
+    people,
+    people[slots.gf] ? slots.gf : undefined,
+    people[slots.gm] ? slots.gm : undefined,
+    paternalGrandX,
+    opts,
+  );
+  const maternalPlan = planGrandparentSide(
+    people,
+    people[slots.mgf] ? slots.mgf : undefined,
+    people[slots.mgm] ? slots.mgm : undefined,
+    maternalGrandX,
+    opts,
+  );
+  const paternalPlaced = placeGrandparentSideFromPlan(
+    paternalPlan,
+    nodes,
+    nodeById,
+    people,
+    yGrand,
+    yGreat,
+    yParent,
+    opts,
+  );
+  const maternalPlaced = placeGrandparentSideFromPlan(
+    maternalPlan,
+    nodes,
+    nodeById,
+    people,
+    yGrand,
+    yGreat,
+    yParent,
+    opts,
+  );
+  if (paternalPlaced.memberIds.length && maternalPlaced.memberIds.length) {
+    const pat = boundsOfIds(paternalPlaced.memberIds, nodeById);
+    const mat = boundsOfIds(maternalPlaced.memberIds, nodeById);
+    if (
+      Number.isFinite(pat.maxX) &&
+      Number.isFinite(mat.minX) &&
+      pat.maxX + greatGap > mat.minX
+    ) {
+      const shift = pat.maxX + greatGap - mat.minX;
+      shiftNodesByIds(maternalPlaced.memberIds, shift, nodeById);
+      maternalPlaced.sideBranches.forEach(branch => refreshSideBranchAnchor(branch, nodeById, opts));
+    }
   }
-  if (people[slots.mgf]) {
-    const grandCluster = placeGrandCoupleCluster(
-      nodes,
-      nodeById,
-      people,
-      slots.mgf,
-      people[slots.mgm] ? slots.mgm : undefined,
-      maternalGrandX,
-      yGrand,
-      -2,
-      opts,
-      yParent,
-      -1,
-    );
-    ancestorSideBranches.push(...grandCluster.sideBranches);
-  } else if (people[slots.mgm]) {
-    placeCoupleNode(
-      nodes,
-      nodeById,
-      slots.mgm,
-      undefined,
-      maternalGrandX,
-      yGrand,
-      -2,
-      opts,
-    );
-  }
-  if (people[slots.ggf] || people[slots.ggm]) {
-    const greatBlood = people[slots.ggf] ? slots.ggf : slots.ggm;
-    const greatSpouse =
-      greatBlood === slots.ggf
-        ? people[slots.ggm]
-          ? slots.ggm
-          : undefined
-        : people[slots.ggf]
-          ? slots.ggf
-          : undefined;
-    const greatCluster = placeGrandCoupleCluster(
-      nodes,
-      nodeById,
-      people,
-      greatBlood,
-      greatSpouse,
-      paternalGrandX,
-      yGreat,
-      -3,
-      opts,
-      yGrand,
-      -2,
-    );
-    ancestorSideBranches.push(...greatCluster.sideBranches);
-  }
-  if (people[slots.mggf] || people[slots.mggm]) {
-    const greatBlood = people[slots.mggf] ? slots.mggf : slots.mggm;
-    const greatSpouse =
-      greatBlood === slots.mggf
-        ? people[slots.mggm]
-          ? slots.mggm
-          : undefined
-        : people[slots.mggf]
-          ? slots.mggf
-          : undefined;
-    const greatCluster = placeGrandCoupleCluster(
-      nodes,
-      nodeById,
-      people,
-      greatBlood,
-      greatSpouse,
-      maternalGrandX,
-      yGreat,
-      -3,
-      opts,
-      yGrand,
-      -2,
-    );
-    ancestorSideBranches.push(...greatCluster.sideBranches);
-  }
+  ancestorSideBranches.push(...paternalPlaced.sideBranches, ...maternalPlaced.sideBranches);
 
   // 조부모·증조 형제의 자녀 → 부모/조부모 줄
-  ancestorSideBranches
-    .filter(b => b.descendantRowY < ySibling)
-    .forEach(branch => {
-      layoutSideBranchDescendants(
-        branch,
-        people,
-        nodes,
-        nodeById,
-        opts,
-        placedSideDescendantIds,
-        branch.descendantRowY + opts.rowGap,
-        [branch.descendantRowY, branch.descendantRowY + opts.rowGap],
-      );
-    });
+  const ancestorRowBranches = ancestorSideBranches.filter(b => b.descendantRowY < ySibling);
+  ancestorRowBranches.forEach(branch => {
+    layoutSideBranchDescendants(
+      branch,
+      people,
+      nodes,
+      nodeById,
+      opts,
+      placedSideDescendantIds,
+      branch.descendantRowY + opts.rowGap,
+      [branch.descendantRowY, branch.descendantRowY + opts.rowGap],
+      ancestorRowBranches,
+    );
+  });
 
   const childUnits: UnitCenter[] = [];
   const placedChildIds = new Set<PersonId>();
@@ -1343,7 +1660,7 @@ export function buildStandardPedigreeLayout(
     bloodId: couple.blood,
     spouseId: couple.spouse && people[couple.spouse] ? couple.spouse : undefined,
     centerX: siblingCenters[i],
-    coupleWidth: uw,
+    coupleWidth: siblingWidths[i] ?? uw,
     branchIndex: i,
   }));
 
@@ -1359,6 +1676,10 @@ export function buildStandardPedigreeLayout(
   });
 
   stabilizePyramidRow(childPyramidGroups, siblingUnits, opts, opts.childGap, opts.coupleGap, false);
+  recenterUnitGroup(siblingUnits, centerX);
+  childPyramidGroups.forEach(group => {
+    group.placements = rebuildGroupPlacements(siblingUnits[group.unitIndex], group.entries, opts);
+  });
 
   siblingUnits.forEach((unit, i) => {
     siblingCenters[i] = unit.centerX;
@@ -1367,7 +1688,7 @@ export function buildStandardPedigreeLayout(
 
   const trackedUnits: UnitCenter[][] = [childUnits];
 
-  let maxContentRight = siblingCenters.reduce((acc, c) => Math.max(acc, c + uw / 2), 0);
+  let maxContentRight = nodes.reduce((acc, n) => Math.max(acc, n.x + n.width), 0);
   childPyramidGroups.forEach(group => {
     group.placements.forEach(entry => {
       if (placedChildIds.has(entry.id) || placedSideDescendantIds.has(entry.id)) return;
@@ -1400,20 +1721,20 @@ export function buildStandardPedigreeLayout(
     applyUnitCenterToNodes(unit, ySibling, nodeById, opts);
   });
 
-  ancestorSideBranches
-    .filter(b => b.anchorY === yParent)
-    .forEach(branch => {
-      layoutSideBranchDescendants(
-        branch,
-        people,
-        nodes,
-        nodeById,
-        opts,
-        placedSideDescendantIds,
-        yChild,
-        [ySibling, yChild],
-      );
-    });
+  const parentRowBranches = ancestorSideBranches.filter(b => b.anchorY === yParent);
+  parentRowBranches.forEach(branch => {
+    layoutSideBranchDescendants(
+      branch,
+      people,
+      nodes,
+      nodeById,
+      opts,
+      placedSideDescendantIds,
+      yChild,
+      [ySibling, yChild],
+      parentRowBranches,
+    );
+  });
 
   let canvasBottomY = yChild;
 
@@ -1538,7 +1859,7 @@ export function buildStandardPedigreeLayout(
     canvasWidth: Number.isFinite(computedWidth) ? computedWidth : 1600,
     canvasHeight: Number.isFinite(canvasHeight) ? canvasHeight : 1200,
     nodes,
-    edges: computeEdges(people),
+    edges: computeEdges(people, nodeById),
     nodeById,
     selfId: focalId,
     highlightIds,

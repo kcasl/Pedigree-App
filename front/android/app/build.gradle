@@ -84,6 +84,7 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "1.0"
+        // Overridden per buildType (debug needs HTTP to Metro).
         manifestPlaceholders = [usesCleartextTraffic: "false"]
     }
     signingConfigs {
@@ -97,6 +98,8 @@ android {
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
+            // Metro serves JS over plain HTTP (localhost / adb reverse).
+            manifestPlaceholders = [usesCleartextTraffic: "true"]
         }
         release {
             // Caution! In production, you need to generate your own keystore file.
@@ -104,6 +107,7 @@ android {
             signingConfig signingConfigs.debug
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
+            manifestPlaceholders = [usesCleartextTraffic: "false"]
         }
     }
 }

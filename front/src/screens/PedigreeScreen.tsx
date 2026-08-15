@@ -51,8 +51,10 @@ import {
   syncStoreAfterEdit,
 } from '../utils/viewSync';
 import { mergePedigreeStoresPreferLocalUserData } from '../utils/personPersist';
+import { kinshipLabelToDisplayName } from '../utils/kinship';
 import { buildContactDirectoryEntries } from '../utils/contactDirectory';
-import { exportPedigreeShare, fetchPedigreeShare } from '../utils/pedigreeShare';
+import { exportPedigreeShare, fetchPedigreeShare, hydrateImportedPedigreeStore } from '../utils/pedigreeShare';
+import { rearrangePedigreeStore } from '../utils/rebasePedigree';
 import { normalizePhoneDigits, openPhoneDialer } from '../utils/phone';
 import { openSmsComposer } from '../utils/sms';
 import {
@@ -833,15 +835,14 @@ export function PedigreeScreen({
         };
         next[finalId] = normalizedParent;
 
-        // 조부모 부부에서 추가해도 혈연 조부(외조부)에 증조 링크를 건다.
-        const nextFatherId =
-          action.parentType === 'father' ? finalId : linkChild.fatherId ?? resolved.otherParentId;
-        const nextMotherId =
-          action.parentType === 'mother' ? finalId : linkChild.motherId ?? resolved.otherParentId;
+        const existingFather =
+          linkChild.fatherId && next[linkChild.fatherId] ? linkChild.fatherId : undefined;
+        const existingMother =
+          linkChild.motherId && next[linkChild.motherId] ? linkChild.motherId : undefined;
         next[resolved.linkChildId] = {
           ...linkChild,
-          fatherId: nextFatherId,
-          motherId: nextMotherId,
+          fatherId: action.parentType === 'father' ? finalId : existingFather,
+          motherId: action.parentType === 'mother' ? finalId : existingMother,
         };
 
         const otherParentId = resolved.otherParentId;
@@ -921,6 +922,29 @@ export function PedigreeScreen({
     setEditingId(null);
   };
 
+  const rearrangePedigree = () => {
+    Alert.alert(
+      '족보 재배열',
+      '빈 템플릿 칸을 정리하고, 세대·나이 기준에 맞게 가운데로 다시 맞출까요?',
+      [
+        { text: '취소', style: 'cancel' },
+        {
+          text: '재배열',
+          onPress: async () => {
+            const next = rearrangePedigreeStore(store);
+            setStore(next);
+            setSelectedId(slotIdsForView(next.activeView).selfId);
+            lastSyncedPeopleRef.current = next.views[next.activeView];
+            await savePedigreeStore(next);
+            await clearNodeOffsets();
+            setSettingsVisible(false);
+            requestAnimationFrame(() => centerOnPedigree(true));
+          },
+        },
+      ],
+    );
+  };
+
   const resetPedigree = async () => {
     Alert.alert('족보 초기화', '현재 계정의 족보를 초기화할까요?', [
       { text: '취소', style: 'cancel' },
@@ -993,7 +1017,7 @@ export function PedigreeScreen({
           setImportBusy(true);
           try {
             const remote = await fetchPedigreeShare(key);
-            const next = syncAllViews(reconcileStore(remote));
+            const next = hydrateImportedPedigreeStore(remote);
             setStore(next);
             setSelectedId(slotIdsForView('self').selfId);
             lastSyncedPeopleRef.current = next.views.self;
@@ -1005,7 +1029,7 @@ export function PedigreeScreen({
             setImportVisible(false);
             setImportKey('');
             requestAnimationFrame(() => centerOnPedigree(true));
-            Alert.alert('불러오기 완료', '공유 족보를 적용했습니다.');
+            Alert.alert('불러오기 완료', '공유 족보를 적용하고 재배열했습니다.');
           } catch (e) {
             Alert.alert(
               '불러오기 실패',
@@ -1083,7 +1107,7 @@ export function PedigreeScreen({
       <View style={[styles.header, scaledUi.header, { backgroundColor: screenBg }]}>
         <View style={[styles.headerTopRow, scaledUi.headerTopRow]}>
           <View style={styles.headerTitleWrap}>
-            <Text style={[styles.headerTitle, scaledUi.headerTitle]}>가족가계도</Text>
+            <Text style={[styles.headerTitle, scaledUi.headerTitle]}>가족 가계도</Text>
             <Text
               style={[
                 styles.viewBadge,
@@ -1167,7 +1191,10 @@ export function PedigreeScreen({
                 >
                   <DraggablePersonNode
                     person={p}
-                    label={kinshipLabelById[p.id] ?? p.name}
+                    label={kinshipLabelToDisplayName(
+                      kinshipLabelById[p.id] ?? p.name,
+                      p,
+                    )}
                     ordinalLabel={ordinalLabelById[p.id]}
                     width={n.width}
                     height={n.height}
@@ -1513,6 +1540,9 @@ export function PedigreeScreen({
                 </Pressable>
               </>
             )}
+            <Pressable style={[styles.settingsActionBtn, scaledUi.settingsActionBtn]} onPress={rearrangePedigree}>
+              <Text style={[styles.settingsActionText, scaledUi.settingsActionText]}>족보 재배열</Text>
+            </Pressable>
             <Pressable
               style={[styles.settingsActionBtn, scaledUi.settingsActionBtn, styles.settingsDangerBtn]}
               onPress={resetPedigree}
@@ -1709,8 +1739,11 @@ const styles = StyleSheet.create({
   },
   headerActions: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
     alignItems: 'flex-start',
-    flexShrink: 0,
+    flexShrink: 1,
+    maxWidth: '72%',
     gap: 4,
   },
   headerActionColumn: {

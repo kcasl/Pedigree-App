@@ -7,7 +7,7 @@ import os
 import uuid
 from urllib.parse import urlparse
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 from .config import settings
 
@@ -28,6 +28,12 @@ def compress_person_photo(image_bytes: bytes) -> tuple[bytes, str, str]:
     image: Image.Image | None = None
     try:
         image = Image.open(io.BytesIO(image_bytes))
+        # 휴대폰 사진 EXIF Orientation을 픽셀에 반영. 안 하면 공유 후 90도 회전되어 보임.
+        transposed = ImageOps.exif_transpose(image)
+        if transposed is not None:
+            if transposed is not image:
+                image.close()
+            image = transposed
         image = image.convert("RGB")
         image.thumbnail((PHOTO_MAX_EDGE, PHOTO_MAX_EDGE))
 
