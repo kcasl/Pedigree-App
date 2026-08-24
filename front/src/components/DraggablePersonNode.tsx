@@ -14,6 +14,7 @@ type Props = {
   style?: ViewStyle;
   highlighted?: boolean;
   generation?: number;
+  minGeneration?: number;
   referenceDate?: Date;
   activeView?: ActiveView;
 };
@@ -28,6 +29,7 @@ export function DraggablePersonNode({
   style,
   highlighted,
   generation,
+  minGeneration,
   referenceDate,
   activeView,
 }: Props) {
@@ -40,6 +42,7 @@ export function DraggablePersonNode({
         onPress={onPress}
         highlighted={highlighted}
         generation={generation}
+        minGeneration={minGeneration}
         width={width}
         height={height}
         referenceDate={referenceDate}

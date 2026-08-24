@@ -1,4 +1,5 @@
 import { Alert, Linking, PermissionsAndroid, Platform } from 'react-native';
+import { t } from '../i18n/translate';
 
 async function requestAndroidPermission(
   permission: string,
@@ -12,8 +13,8 @@ async function requestAndroidPermission(
     const res = await PermissionsAndroid.request(permission as any, {
       title: rationaleTitle,
       message: rationaleMessage,
-      buttonPositive: '허용',
-      buttonNegative: '거부',
+      buttonPositive: t('permission.allow'),
+      buttonNegative: t('permission.deny'),
     });
 
     if (res === PermissionsAndroid.RESULTS.GRANTED) return true;
@@ -21,11 +22,11 @@ async function requestAndroidPermission(
     const neverAskAgain = res === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN;
     if (neverAskAgain) {
       Alert.alert(
-        '권한 필요',
-        '설정에서 권한을 허용해야 기능을 사용할 수 있어요.',
+        t('permission.neededTitle'),
+        t('permission.neededBody'),
         [
-          { text: '취소', style: 'cancel' },
-          { text: '설정 열기', onPress: () => Linking.openSettings() },
+          { text: t('common.cancel'), style: 'cancel' },
+          { text: t('permission.openSettings'), onPress: () => Linking.openSettings() },
         ],
       );
     }
@@ -39,8 +40,8 @@ export async function ensureCameraPermission(): Promise<boolean> {
   if (Platform.OS !== 'android') return true;
   return requestAndroidPermission(
     PermissionsAndroid.PERMISSIONS.CAMERA,
-    '카메라 권한',
-    '사진 촬영을 위해 카메라 권한이 필요합니다.',
+    t('permission.cameraTitle'),
+    t('permission.cameraBody'),
   );
 }
 
@@ -52,16 +53,16 @@ export async function ensurePhotoPermission(): Promise<boolean> {
     // Android 13+
     return requestAndroidPermission(
       'android.permission.READ_MEDIA_IMAGES',
-      '사진 접근 권한',
-      '사진 선택을 위해 저장소(사진) 접근 권한이 필요합니다.',
+      t('permission.photoTitle'),
+      t('permission.photoBody'),
     );
   }
 
   // Android 12 이하
   return requestAndroidPermission(
     PermissionsAndroid.PERMISSIONS.READ_EXTERNAL_STORAGE,
-    '저장소 권한',
-    '사진 선택을 위해 저장소 접근 권한이 필요합니다.',
+    t('permission.storageTitle'),
+    t('permission.storageBody'),
   );
 }
 

@@ -24,11 +24,13 @@ import {
   parseDateInputToIso,
 } from '../utils/date';
 import { createId } from '../utils/id';
+import { formatPhoneDisplay } from '../utils/phone';
 import { ensureCameraPermission, ensurePhotoPermission } from '../utils/permissions';
 import { API_BASE_URL } from '../config/api';
 import { ENABLE_SERVER_SYNC } from '../config/features';
 import { ui } from '../theme/ui';
 import { useScaledModalStyles } from '../theme/responsive';
+import { useI18n } from '../i18n';
 
 type Props = {
   visible: boolean;
@@ -67,6 +69,7 @@ export function AddPersonModal({
   auth,
   section = 'all',
 }: Props) {
+  const { t } = useI18n();
   const scaled = useScaledModalStyles();
   const [name, setName] = useState(initialPerson?.name ?? '');
   const [phone, setPhone] = useState(initialPerson?.phone ?? '');
@@ -101,7 +104,7 @@ export function AddPersonModal({
     if (!visible) return;
 
     setName(initialPerson?.name ?? '');
-    setPhone(initialPerson?.phone ?? '');
+    setPhone(formatPhoneDisplay(initialPerson?.phone));
     setBirthDate(initialPerson?.birthDate ?? '');
     setPhotoUri(initialPerson?.photoUri);
     setNote(initialPerson?.note ?? '');
@@ -130,7 +133,7 @@ export function AddPersonModal({
 
   const reset = () => {
     setName(initialPerson?.name ?? '');
-    setPhone(initialPerson?.phone ?? '');
+    setPhone(formatPhoneDisplay(initialPerson?.phone));
     setBirthDate(initialPerson?.birthDate ?? '');
     setPhotoUri(initialPerson?.photoUri);
     setNote(initialPerson?.note ?? '');
@@ -147,7 +150,7 @@ export function AddPersonModal({
     const res = await launchImageLibrary(imagePickerCommon);
     if (res.didCancel) return;
     if (res.errorCode) {
-      Alert.alert('사진 선택 실패', res.errorMessage ?? res.errorCode);
+      Alert.alert(t('addPerson.photoFail'), res.errorMessage ?? res.errorCode);
       return;
     }
     const uri = res.assets?.[0]?.uri;
@@ -167,7 +170,7 @@ export function AddPersonModal({
     const res = await launchCamera(cameraOptions);
     if (res.didCancel) return;
     if (res.errorCode) {
-      Alert.alert('카메라 실행 실패', res.errorMessage ?? res.errorCode);
+      Alert.alert(t('addPerson.cameraFail'), res.errorMessage ?? res.errorCode);
       return;
     }
     const uri = res.assets?.[0]?.uri;
@@ -220,13 +223,13 @@ export function AddPersonModal({
 
   const submit = () => {
     if (!canSave) {
-      Alert.alert('필수 입력', '이름은 필수입니다.');
+      Alert.alert(t('addPerson.requiredTitle'), t('addPerson.requiredName'));
       return;
     }
 
     const createdAt = resolveCreatedAt();
     if (!createdAt) {
-      Alert.alert('입력 오류', '등록일은 YYYY-MM-DD 형식으로 입력해 주세요.');
+      Alert.alert(t('addPerson.dateErrorTitle'), t('addPerson.registeredDateFormat'));
       return;
     }
 
@@ -236,8 +239,8 @@ export function AddPersonModal({
       const parsed = normalizeBirthDateInput(birthDateTrimmed);
       if (!parsed) {
         Alert.alert(
-          '입력 오류',
-          '생년월일은 YYYY-MM-DD 또는 YYYYMMDD 형식으로 입력해 주세요.\n예: 2007-06-01, 20070601',
+          t('addPerson.dateErrorTitle'),
+          t('addPerson.birthDateFormat'),
         );
         return;
       }
@@ -248,7 +251,7 @@ export function AddPersonModal({
       ? {
           ...initialPerson,
           name: name.trim(),
-          phone: phone.trim() || undefined,
+          phone: formatPhoneDisplay(phone) || undefined,
           birthDate: normalizedBirthDate,
           createdAt,
           photoUri,
@@ -258,7 +261,7 @@ export function AddPersonModal({
       : {
           id: createId('person'),
           name: name.trim(),
-          phone: phone.trim() || undefined,
+          phone: formatPhoneDisplay(phone) || undefined,
           birthDate: normalizedBirthDate,
           createdAt,
           photoUri,
@@ -290,7 +293,7 @@ export function AddPersonModal({
           <View style={[styles.header, scaled.header]}>
             <Text style={[styles.title, scaled.title]}>{title}</Text>
             <Pressable onPress={close} style={[styles.closeBtn, scaled.closeBtn]}>
-              <Text style={[styles.closeText, scaled.closeText]}>닫기</Text>
+              <Text style={[styles.closeText, scaled.closeText]}>{t('common.close')}</Text>
             </Pressable>
           </View>
 
@@ -301,18 +304,18 @@ export function AddPersonModal({
             {showInfoFields ? (
               <>
             <View style={[styles.field, scaled.field]}>
-              <Text style={[styles.label, scaled.label]}>이름 *</Text>
+              <Text style={[styles.label, scaled.label]}>{t('addPerson.nameRequired')}</Text>
               <TextInput
                 value={name}
                 onChangeText={setName}
-                placeholder="예: 홍길동"
+                placeholder={t('addPerson.namePlaceholder')}
                 placeholderTextColor="#64748b"
                 style={[styles.input, scaled.input]}
               />
             </View>
 
             <View style={[styles.field, scaled.field]}>
-              <Text style={[styles.label, scaled.label]}>성별</Text>
+              <Text style={[styles.label, scaled.label]}>{t('person.gender')}</Text>
               <View style={[styles.genderRow, scaled.genderRow]}>
                 <Pressable
                   onPress={() => setGender('male')}
@@ -329,7 +332,7 @@ export function AddPersonModal({
                       gender === 'male' && styles.genderBtnTextActive,
                     ]}
                   >
-                    남성
+                    {t('person.male')}
                   </Text>
                 </Pressable>
                 <Pressable
@@ -347,7 +350,7 @@ export function AddPersonModal({
                       gender === 'female' && styles.genderBtnTextActive,
                     ]}
                   >
-                    여성
+                    {t('person.female')}
                   </Text>
                 </Pressable>
                 <Pressable
@@ -365,18 +368,18 @@ export function AddPersonModal({
                       gender === 'unknown' && styles.genderBtnTextActive,
                     ]}
                   >
-                    미정
+                    {t('person.unknown')}
                   </Text>
                 </Pressable>
               </View>
             </View>
 
             <View style={[styles.field, scaled.field]}>
-              <Text style={[styles.label, scaled.label]}>연락처</Text>
+              <Text style={[styles.label, scaled.label]}>{t('person.phone')}</Text>
               <TextInput
                 value={phone}
-                onChangeText={setPhone}
-                placeholder="예: 010-1234-5678"
+                onChangeText={text => setPhone(formatPhoneDisplay(text))}
+                placeholder={t('addPerson.phonePlaceholder')}
                 placeholderTextColor="#64748b"
                 keyboardType="phone-pad"
                 style={[styles.input, scaled.input]}
@@ -384,48 +387,48 @@ export function AddPersonModal({
             </View>
 
             <View style={[styles.field, scaled.field]}>
-              <Text style={[styles.label, scaled.label]}>생년월일</Text>
+              <Text style={[styles.label, scaled.label]}>{t('person.birthDate')}</Text>
               <TextInput
                 value={birthDate}
                 onChangeText={setBirthDate}
-                placeholder="예: 2007-06-01 또는 20070601"
+                placeholder={t('addPerson.birthPlaceholder')}
                 placeholderTextColor="#64748b"
                 autoCapitalize="none"
                 autoCorrect={false}
                 style={[styles.input, scaled.input, styles.birthDateInput]}
               />
               <Text style={[styles.fieldHint, scaled.fieldHint]}>
-                YYYY-MM-DD, YYYYMMDD 형식 모두 입력 가능합니다.
+                {t('addPerson.birthHint')}
               </Text>
             </View>
 
             <View style={[styles.field, scaled.field]}>
-              <Text style={[styles.label, scaled.label]}>등록일</Text>
+              <Text style={[styles.label, scaled.label]}>{t('person.registered')}</Text>
               <TextInput
                 value={registeredDate}
                 onChangeText={setRegisteredDate}
-                placeholder="YYYY-MM-DD"
+                placeholder={t('addPerson.registeredPlaceholder')}
                 placeholderTextColor="#64748b"
                 style={[styles.input, scaled.input]}
               />
               {!initialPerson ? (
                 <Text style={[styles.fieldHint, scaled.fieldHint]}>
-                  와이파이 연결 시 네트워크 시간으로 자동 입력됩니다.
+                  {t('addPerson.networkHint')}
                 </Text>
               ) : (
-                <Text style={[styles.fieldHint, scaled.fieldHint]}>등록일을 직접 수정할 수 있습니다.</Text>
+                <Text style={[styles.fieldHint, scaled.fieldHint]}>{t('addPerson.editDateHint')}</Text>
               )}
             </View>
 
             <View style={[styles.field, scaled.field]}>
               <View style={styles.noteHeader}>
-                <Text style={[styles.label, scaled.label]}>비고(기타 정보)</Text>
+                <Text style={[styles.label, scaled.label]}>{t('addPerson.noteLabel')}</Text>
                 <Text style={[styles.noteCount, scaled.noteCount]}>{note.length}/100</Text>
               </View>
               <TextInput
                 value={note}
                 onChangeText={setNote}
-                placeholder="추가로 기록할 내용을 적어주세요 (최대 100자)"
+                placeholder={t('addPerson.notePlaceholder')}
                 placeholderTextColor="#64748b"
                 maxLength={100}
                 multiline
@@ -439,20 +442,20 @@ export function AddPersonModal({
             <View style={[styles.field, scaled.field]}>
             <View style={[styles.photoRow, scaled.photoRow]}>
               <Pressable onPress={takePhoto} style={[styles.photoBtn, scaled.photoBtn]}>
-                <Text style={[styles.photoBtnText, scaled.photoBtnText]}>카메라</Text>
+                <Text style={[styles.photoBtnText, scaled.photoBtnText]}>{t('addPerson.camera')}</Text>
               </Pressable>
               <Pressable onPress={pickFromGallery} style={[styles.photoBtn, scaled.photoBtn]}>
-                <Text style={[styles.photoBtnText, scaled.photoBtnText]}>갤러리</Text>
+                <Text style={[styles.photoBtnText, scaled.photoBtnText]}>{t('addPerson.gallery')}</Text>
               </Pressable>
               <Pressable
                 onPress={() => setPhotoUri(undefined)}
                 style={[styles.photoBtn, scaled.photoBtn, styles.photoBtnDanger]}
               >
-                <Text style={[styles.photoBtnText, scaled.photoBtnText, styles.photoBtnDangerText]}>제거</Text>
+                <Text style={[styles.photoBtnText, scaled.photoBtnText, styles.photoBtnDangerText]}>{t('addPerson.remove')}</Text>
               </Pressable>
               <View style={[styles.photoInfo, scaled.photoInfo]}>
                 <Text style={[styles.photoInfoText, scaled.photoInfoText]} numberOfLines={1}>
-                  {photoUri ? '사진 선택됨' : '사진 없음'}
+                  {photoUri ? t('addPerson.photoSelected') : t('addPerson.photoNone')}
                 </Text>
               </View>
             </View>
@@ -471,7 +474,7 @@ export function AddPersonModal({
                 pressed && canSave && styles.saveBtnPressed,
               ]}
             >
-              <Text style={[styles.saveText, scaled.saveText]}>저장</Text>
+              <Text style={[styles.saveText, scaled.saveText]}>{t('common.save')}</Text>
             </Pressable>
           </View>
         </View>

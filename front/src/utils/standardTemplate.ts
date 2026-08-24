@@ -244,6 +244,7 @@ export function isGreatGrandparentNode(
   }
 
   if (/_m?ggf$/.test(person.id) || /_m?ggm$/.test(person.id)) return true;
+  if (/_m?gg[fm]_[fm]$/.test(person.id)) return true;
   if (/_(gm|mgm)_[fm]$/.test(person.id)) return true;
   const normalized = normalizeGreatAncestorDisplayName(person.name);
   return normalized === '증조할아버지' || normalized === '증조할머니';
@@ -447,7 +448,7 @@ export function reconcileViewTemplate(
       motherId: preserveParents
         ? (existing.motherId ?? template.motherId)
         : template.motherId,
-      spouseId: existing.spouseId ?? template.spouseId,
+      spouseId: existing.spouseId && out[existing.spouseId] ? existing.spouseId : undefined,
     }, {
       renameFrom: legacySelfRename[id]?.from,
       renameTo: legacySelfRename[id]?.to,

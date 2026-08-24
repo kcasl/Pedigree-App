@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
+  BackHandler,
   Modal,
   Platform,
   Pressable,
@@ -29,9 +30,10 @@ import { EdgeLines } from '../components/EdgeLines';
 import { DraggablePersonNode } from '../components/DraggablePersonNode';
 import type { ParentType, Person, PersonId } from '../types/pedigree';
 import { API_BASE_URL } from '../config/api';
-import { ENABLE_SERVER_SYNC } from '../config/features';
+import { ENABLE_PEDIGREE_SHARE, ENABLE_SERVER_SYNC } from '../config/features';
+import { TrialExpiredBanner, useTrialLicense } from '../hooks/useTrialLicense';
 import type { ActiveView, PedigreeStore } from '../types/lineage';
-import { ACTIVE_VIEW_BG, ACTIVE_VIEW_LABEL } from '../types/lineage';
+import { ACTIVE_VIEW_BG } from '../types/lineage';
 import {
   clearNodeOffsets,
   clearPedigreePeople,
@@ -69,6 +71,8 @@ import type { PositionedNode } from '../utils/pedigreeLayout';
 import { ui } from '../theme/ui';
 import { useResponsive } from '../theme/responsive';
 import { useCurrentDate } from '../hooks/useCurrentDate';
+import { useI18n } from '../i18n';
+import type { MessageKey } from '../i18n';
 import pako from 'pako';
 import { Buffer } from 'buffer';
 
@@ -87,6 +91,7 @@ type AuthSession = {
 
 type Props = {
   auth?: AuthSession;
+  onBack?: () => void;
   onRequestLogout?: () => void | Promise<void>;
   onRequestSwitchAccount?: () => void | Promise<void>;
   onRequestLinkGoogle?: () => void | Promise<void>;
@@ -134,10 +139,12 @@ function useScreenInsets() {
 
 export function PedigreeScreen({
   auth,
+  onBack,
   onRequestLogout,
   onRequestSwitchAccount,
   onRequestLinkGoogle,
 }: Props) {
+  const { t, displayKinship } = useI18n();
   const { topInset, bottomInset } = useScreenInsets();
   const today = useCurrentDate();
   const { rs, layoutBase, height: windowHeight, uiScale } = useResponsive();
@@ -250,6 +257,7 @@ export function PedigreeScreen({
     [rs, bottomInset, actionSheetMaxHeight],
   );
   const [store, setStore] = useState<PedigreeStore>(createInitialStore);
+  const { expired: writeLocked, guardWrite } = useTrialLicense();
   const activeView = store.activeView;
   const peopleById = store.views[activeView];
   const slots = useMemo(() => slotIdsForView(activeView), [activeView]);
@@ -517,6 +525,7 @@ export function PedigreeScreen({
   }, [auth?.accessToken, auth?.googleSub, isHydrated]);
 
   const deletePerson = (id: PersonId) => {
+    if (!guardWrite()) return;
     if (id === slots.selfId) return;
     updateActiveViewPeople(prev => {
       if (!prev[id]) return prev;
@@ -579,6 +588,14 @@ export function PedigreeScreen({
     const canvasHeight = Number.isFinite(layout.canvasHeight) ? layout.canvasHeight : 1200;
     return { ...layout, nodes, nodeById, canvasWidth, canvasHeight };
   }, [layout]);
+
+  const minGeneration = useMemo(() => {
+    if (!displayLayout.nodes.length) return 0;
+    return displayLayout.nodes.reduce(
+      (min, node) => Math.min(min, node.generation),
+      displayLayout.nodes[0]!.generation,
+    );
+  }, [displayLayout.nodes]);
 
   const spousePairs = useMemo(() => {
     const pairs: Array<{ aId: PersonId; bId: PersonId }> = [];
@@ -663,13 +680,69 @@ export function PedigreeScreen({
     savedY.value = nextY;
   }, [savedScale, savedX, savedY, scale, translateX, translateY]);
 
-  const recenterToSelfView = () => {
-    if (activeView !== 'self') {
-      switchToSelfView();
-      return;
-    }
+  const recenterCurrentView = () => {
     centerOnPedigree(true);
   };
+
+  useEffect(() => {
+    const onHardwareBack = () => {
+      if (actionVisible) {
+        setActionVisible(false);
+        return true;
+      }
+      if (pendingAdd) {
+        setPendingAdd(null);
+        return true;
+      }
+      if (editingId) {
+        setEditingId(null);
+        return true;
+      }
+      if (detailId) {
+        setDetailId(null);
+        return true;
+      }
+      if (settingsVisible) {
+        setSettingsVisible(false);
+        return true;
+      }
+      if (contactsVisible) {
+        setContactsVisible(false);
+        return true;
+      }
+      if (usageVisible) {
+        setUsageVisible(false);
+        return true;
+      }
+      if (importVisible && !importBusy) {
+        setImportVisible(false);
+        return true;
+      }
+      if (exportedKey) {
+        setExportedKey(null);
+        return true;
+      }
+      if (onBack) {
+        onBack();
+        return true;
+      }
+      return false;
+    };
+    const sub = BackHandler.addEventListener('hardwareBackPress', onHardwareBack);
+    return () => sub.remove();
+  }, [
+    actionVisible,
+    pendingAdd,
+    editingId,
+    detailId,
+    settingsVisible,
+    contactsVisible,
+    usageVisible,
+    importVisible,
+    importBusy,
+    exportedKey,
+    onBack,
+  ]);
 
   useEffect(() => {
     if (!isHydrated) return;
@@ -759,9 +832,10 @@ export function PedigreeScreen({
     setActionVisible(true);
   };
 
-  const selectedDisplayName = selected?.name?.trim() || '이름 없음';
+  const selectedDisplayName = displayKinship(selected?.name?.trim()) || t('common.unnamed');
 
   const openEditSection = (section: 'info' | 'photo') => {
+    if (!guardWrite()) return;
     setActionVisible(false);
     setEditSection(section);
     setEditingId(selectedId);
@@ -774,29 +848,32 @@ export function PedigreeScreen({
   const smsSelectedPerson = () => {
     const digits = normalizePhoneDigits(selected?.phone);
     if (!digits) {
-      Alert.alert('연락처 없음', '문자를 보낼 전화번호가 등록되어 있지 않습니다.');
+      Alert.alert(t('pedigree.smsNoPhoneTitle'), t('pedigree.smsNoPhoneBody'));
       return;
     }
     void openSmsComposer([digits]);
   };
 
   const addTitle = useMemo(() => {
-    if (!pendingAdd) return '인물 등록';
+    if (!pendingAdd) return t('pedigree.addPerson');
     switch (pendingAdd.kind) {
       case 'parent':
-        return pendingAdd.parentType === 'father' ? '부 등록(아버지)' : '모 등록(어머니)';
+        return pendingAdd.parentType === 'father'
+          ? t('pedigree.addFatherTitle')
+          : t('pedigree.addMotherTitle');
       case 'sibling':
-        return '형제/자매 추가';
+        return t('pedigree.addSiblingTitle');
       case 'child':
-        return '자녀 추가';
+        return t('pedigree.addChildTitle');
       case 'spouse':
-        return '배우자 추가';
+        return t('pedigree.addSpouseTitle');
       default:
-        return '인물 등록';
+        return t('pedigree.addPerson');
     }
-  }, [pendingAdd]);
+  }, [pendingAdd, t]);
 
   const onSubmitNewPerson = (person: Person) => {
+    if (!guardWrite()) return;
     const action = pendingAdd;
     if (!action) return;
     updateActiveViewPeople(prev => {
@@ -902,6 +979,7 @@ export function PedigreeScreen({
   };
 
   const onSubmitEditPerson = (person: Person) => {
+    if (!guardWrite()) return;
     updateActiveViewPeople(prev => {
       const existing = prev[person.id];
       if (!existing) return prev;
@@ -923,13 +1001,14 @@ export function PedigreeScreen({
   };
 
   const rearrangePedigree = () => {
+    if (!guardWrite()) return;
     Alert.alert(
-      '족보 재배열',
-      '빈 템플릿 칸을 정리하고, 세대·나이 기준에 맞게 가운데로 다시 맞출까요?',
+      t('settings.rearrange'),
+      t('settings.rearrangeConfirmBody'),
       [
-        { text: '취소', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: '재배열',
+          text: t('settings.rearrange'),
           onPress: async () => {
             const next = rearrangePedigreeStore(store);
             setStore(next);
@@ -946,10 +1025,11 @@ export function PedigreeScreen({
   };
 
   const resetPedigree = async () => {
-    Alert.alert('족보 초기화', '현재 계정의 족보를 초기화할까요?', [
-      { text: '취소', style: 'cancel' },
+    if (!guardWrite()) return;
+    Alert.alert(t('settings.reset'), t('settings.resetConfirmBody'), [
+      { text: t('common.cancel'), style: 'cancel' },
       {
-        text: '초기화',
+        text: t('settings.reset'),
         style: 'destructive',
         onPress: async () => {
           // 초기화 시 기본 족보 포맷(나·부모·양가 조부모·배우자·자녀)으로 복원
@@ -980,6 +1060,7 @@ export function PedigreeScreen({
   };
 
   const exportSelectedAsShare = async () => {
+    if (!ENABLE_PEDIGREE_SHARE) return;
     if (!selectedId || exportBusy) return;
     setExportBusy(true);
     setActionVisible(false);
@@ -991,8 +1072,8 @@ export function PedigreeScreen({
       });
       setExportedKey(key);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : '족보 내보내기에 실패했습니다.';
-      Alert.alert('내보내기 실패', msg);
+      const msg = e instanceof Error ? e.message : t('pedigree.exportFailFallback');
+      Alert.alert(t('pedigree.exportFailTitle'), msg);
       if (__DEV__) {
         // eslint-disable-next-line no-console
         console.warn('[exportPedigreeShare]', msg);
@@ -1003,15 +1084,16 @@ export function PedigreeScreen({
   };
 
   const confirmImportShare = () => {
+    if (!ENABLE_PEDIGREE_SHARE) return;
     const key = importKey.trim();
     if (!key) {
-      Alert.alert('키가 잘못되었습니다.', '공유 키를 입력해 주세요.');
+      Alert.alert(t('pedigree.badKeyTitle'), t('pedigree.badKeyBody'));
       return;
     }
-    Alert.alert('족보 불러오기', '적용하시겠습니까?\n현재 족보는 불러온 내용으로 전체 교체됩니다.', [
-      { text: '취소', style: 'cancel' },
+    Alert.alert(t('pedigree.importConfirmTitle'), t('pedigree.importConfirmBody'), [
+      { text: t('common.cancel'), style: 'cancel' },
       {
-        text: '적용',
+        text: t('common.apply'),
         style: 'destructive',
         onPress: async () => {
           setImportBusy(true);
@@ -1029,11 +1111,11 @@ export function PedigreeScreen({
             setImportVisible(false);
             setImportKey('');
             requestAnimationFrame(() => centerOnPedigree(true));
-            Alert.alert('불러오기 완료', '공유 족보를 적용하고 재배열했습니다.');
+            Alert.alert(t('pedigree.importDoneTitle'), t('pedigree.importDoneBody'));
           } catch (e) {
             Alert.alert(
-              '불러오기 실패',
-              e instanceof Error ? e.message : '키가 잘못되었습니다.',
+              t('pedigree.importFailTitle'),
+              e instanceof Error ? e.message : t('pedigree.badKeyTitle'),
             );
           } finally {
             setImportBusy(false);
@@ -1049,7 +1131,7 @@ export function PedigreeScreen({
     try {
       await onRequestSwitchAccount();
     } catch {
-      Alert.alert('계정 변경 실패', '계정 변경 중 오류가 발생했습니다.');
+      Alert.alert(t('settings.switchFailTitle'), t('settings.switchFailBody'));
     }
   };
 
@@ -1059,7 +1141,7 @@ export function PedigreeScreen({
     try {
       await onRequestLogout();
     } catch {
-      Alert.alert('로그아웃 실패', '로그아웃 중 오류가 발생했습니다.');
+      Alert.alert(t('settings.logoutFailTitle'), t('settings.logoutFailBody'));
     }
   };
 
@@ -1069,7 +1151,7 @@ export function PedigreeScreen({
     try {
       await onRequestLinkGoogle();
     } catch {
-      Alert.alert('연동 실패', '구글 계정 연동 중 오류가 발생했습니다.');
+      Alert.alert(t('settings.linkFailTitle'), t('settings.linkFailBody'));
     }
   };
 
@@ -1091,7 +1173,7 @@ export function PedigreeScreen({
       >
         <View style={[styles.loadingWrap, scaledUi.loadingWrap]}>
           <ActivityIndicator size="large" color={ui.color.accent} />
-          <Text style={[styles.loadingText, scaledUi.loadingText]}>족보 불러오는 중...</Text>
+          <Text style={[styles.loadingText, scaledUi.loadingText]}>{t('pedigree.loading')}</Text>
         </View>
       </View>
     );
@@ -1107,7 +1189,7 @@ export function PedigreeScreen({
       <View style={[styles.header, scaledUi.header, { backgroundColor: screenBg }]}>
         <View style={[styles.headerTopRow, scaledUi.headerTopRow]}>
           <View style={styles.headerTitleWrap}>
-            <Text style={[styles.headerTitle, scaledUi.headerTitle]}>가족 가계도</Text>
+            <Text style={[styles.headerTitle, scaledUi.headerTitle]}>{t('pedigree.title')}</Text>
             <Text
               style={[
                 styles.viewBadge,
@@ -1115,13 +1197,16 @@ export function PedigreeScreen({
                 { backgroundColor: ACTIVE_VIEW_BG[activeView] },
               ]}
             >
-              {ACTIVE_VIEW_LABEL[activeView]} 시점
+              {t('pedigree.viewSuffix', { view: t(`view.${activeView}` as MessageKey) })}
             </Text>
           </View>
           <View style={[styles.headerActions, scaledUi.headerActions]}>
-            <Pressable style={[styles.settingsBtn, scaledUi.settingsBtn]} onPress={() => setContactsVisible(true)}>
-              <Text style={[styles.settingsBtnText, scaledUi.settingsBtnText]}>연락처</Text>
-            </Pressable>
+            {onBack ? (
+              <Pressable style={[styles.settingsBtn, scaledUi.settingsBtn]} onPress={onBack}>
+                <Text style={[styles.settingsBtnText, scaledUi.settingsBtnText]}>{t('common.home')}</Text>
+              </Pressable>
+            ) : null}
+            {ENABLE_PEDIGREE_SHARE ? (
             <Pressable
               style={[styles.settingsBtn, scaledUi.settingsBtn]}
               onPress={() => {
@@ -1129,18 +1214,16 @@ export function PedigreeScreen({
                 setImportVisible(true);
               }}
             >
-              <Text style={[styles.settingsBtnText, scaledUi.settingsBtnText]}>족보 불러오기</Text>
+              <Text style={[styles.settingsBtnText, scaledUi.settingsBtnText]}>{t('pedigree.import')}</Text>
             </Pressable>
-            <Pressable style={[styles.settingsBtn, scaledUi.settingsBtn]} onPress={() => setSettingsVisible(true)}>
-              <Text style={[styles.settingsBtnText, scaledUi.settingsBtnText]}>설정</Text>
-            </Pressable>
+            ) : null}
             <View style={[styles.headerActionColumn, scaledUi.headerActionColumn]}>
               <Pressable style={[styles.settingsBtn, scaledUi.settingsBtn]} onPress={() => setUsageVisible(true)}>
-                <Text style={[styles.settingsBtnText, scaledUi.settingsBtnText]}>사용법</Text>
+                <Text style={[styles.settingsBtnText, scaledUi.settingsBtnText]}>{t('pedigree.usage')}</Text>
               </Pressable>
               {activeView !== 'self' ? (
                 <Pressable style={[styles.selfReturnBtn, scaledUi.selfReturnBtn]} onPress={switchToSelfView}>
-                  <Text style={[styles.selfReturnBtnText, scaledUi.selfReturnBtnText]}>나 시점</Text>
+                  <Text style={[styles.selfReturnBtnText, scaledUi.selfReturnBtnText]}>{t('pedigree.selfView')}</Text>
                 </Pressable>
               ) : null}
             </View>
@@ -1148,19 +1231,22 @@ export function PedigreeScreen({
         </View>
         <Text style={[styles.syncText, scaledUi.syncText]}>
           {localSaveStatus === 'error'
-            ? '기기 저장 실패'
+            ? t('pedigree.syncDeviceFail')
             : ENABLE_SERVER_SYNC && auth?.googleSub
               ? syncStatus === 'syncing'
-                ? '동기화 중...'
+                ? t('pedigree.syncing')
                 : syncStatus === 'synced'
-                  ? '서버 동기화 완료'
+                  ? t('pedigree.syncDone')
                   : syncStatus === 'offline'
-                    ? '오프라인 모드 (로컬 저장 중)'
+                    ? t('pedigree.syncOffline')
                     : syncStatus === 'error'
-                      ? '동기화 오류 (재시도 예정)'
-                      : '동기화 대기'
-              : '기기에 저장됨'}
+                      ? t('pedigree.syncError')
+                      : t('pedigree.syncIdle')
+              : t('pedigree.savedLocal')}
         </Text>
+      </View>
+      <View style={{ paddingHorizontal: 12 }}>
+        <TrialExpiredBanner compact />
       </View>
 
       <View style={[styles.stage, { backgroundColor: screenBg }]} onLayout={onStageLayout}>
@@ -1200,6 +1286,7 @@ export function PedigreeScreen({
                     height={n.height}
                     highlighted={layout.highlightIds.has(n.id)}
                     generation={n.generation}
+                    minGeneration={minGeneration}
                     referenceDate={today}
                     activeView={activeView}
                     onPress={() => openActionsFor(n.id)}
@@ -1212,10 +1299,10 @@ export function PedigreeScreen({
         </GestureDetector>
       </View>
 
-      {exportBusy ? (
+      {ENABLE_PEDIGREE_SHARE && exportBusy ? (
         <View style={styles.shareBusyOverlay} pointerEvents="auto">
           <ActivityIndicator size="large" color={ui.color.accentDark} />
-          <Text style={styles.shareBusyText}>족보 내보내는 중…</Text>
+          <Text style={styles.shareBusyText}>{t('pedigree.exportingBusy')}</Text>
         </View>
       ) : null}
 
@@ -1229,9 +1316,9 @@ export function PedigreeScreen({
         </Pressable>
         <Pressable
           style={[styles.zoomBtn, styles.zoomCenterBtn, scaledUi.zoomCenterBtn]}
-          onPress={recenterToSelfView}
+          onPress={recenterCurrentView}
         >
-          <Text style={[styles.zoomCenterText, scaledUi.zoomCenterText]}>센터</Text>
+          <Text style={[styles.zoomCenterText, scaledUi.zoomCenterText]}>{t('pedigree.center')}</Text>
         </Pressable>
       </View>
 
@@ -1252,26 +1339,26 @@ export function PedigreeScreen({
                 <Pressable
                   style={[styles.sheetContactBtn, scaledUi.sheetContactBtn]}
                   onPress={callSelectedPerson}
-                  accessibilityLabel="전화걸기"
+                  accessibilityLabel={t('pedigree.call')}
                 >
                   <Text style={[styles.sheetContactIcon, scaledUi.sheetContactIcon]}>☎</Text>
-                  <Text style={[styles.sheetContactLabel, scaledUi.sheetContactLabel]}>전화걸기</Text>
+                  <Text style={[styles.sheetContactLabel, scaledUi.sheetContactLabel]}>{t('pedigree.call')}</Text>
                 </Pressable>
                 <Pressable
                   style={[styles.sheetContactBtn, scaledUi.sheetContactBtn]}
                   onPress={smsSelectedPerson}
-                  accessibilityLabel="문자 보내기"
+                  accessibilityLabel={t('pedigree.smsSend')}
                 >
                   <Text style={[styles.sheetContactIcon, scaledUi.sheetContactIcon]}>✉</Text>
-                  <Text style={[styles.sheetContactLabel, scaledUi.sheetContactLabel]}>문자</Text>
+                  <Text style={[styles.sheetContactLabel, scaledUi.sheetContactLabel]}>{t('pedigree.sms')}</Text>
                 </Pressable>
                 <Pressable
                   style={[styles.sheetContactBtn, scaledUi.sheetContactBtn, styles.sheetCloseBtn]}
                   onPress={() => setActionVisible(false)}
-                  accessibilityLabel="닫기"
+                  accessibilityLabel={t('common.close')}
                 >
                   <Text style={[styles.sheetContactLabel, scaledUi.sheetContactLabel, styles.sheetCloseBtnText]}>
-                    닫기
+                    {t('common.close')}
                   </Text>
                 </Pressable>
               </View>
@@ -1284,13 +1371,17 @@ export function PedigreeScreen({
               bounces={false}
               keyboardShouldPersistTaps="handled"
             >
+            {!writeLocked ? (
+            <>
             <Pressable style={[styles.sheetItem, scaledUi.sheetItem, styles.sheetEditItem]} onPress={() => openEditSection('info')}>
-              <Text style={[styles.sheetItemText, scaledUi.sheetItemText, styles.sheetEditItemText]}>자료·정보 입력</Text>
+              <Text style={[styles.sheetItemText, scaledUi.sheetItemText, styles.sheetEditItemText]}>{t('pedigree.editInfo')}</Text>
             </Pressable>
 
             <Pressable style={[styles.sheetItem, scaledUi.sheetItem, styles.sheetEditItem]} onPress={() => openEditSection('photo')}>
-              <Text style={[styles.sheetItemText, scaledUi.sheetItemText, styles.sheetEditItemText]}>사진 추가·수정</Text>
+              <Text style={[styles.sheetItemText, scaledUi.sheetItemText, styles.sheetEditItemText]}>{t('pedigree.editPhoto')}</Text>
             </Pressable>
+            </>
+            ) : null}
 
             <Pressable
               style={[styles.sheetItem, scaledUi.sheetItem]}
@@ -1299,18 +1390,20 @@ export function PedigreeScreen({
                 setDetailId(selectedId);
               }}
             >
-              <Text style={[styles.sheetItemText, scaledUi.sheetItemText]}>정보 보기</Text>
+              <Text style={[styles.sheetItemText, scaledUi.sheetItemText]}>{t('pedigree.viewInfo')}</Text>
             </Pressable>
 
+            {ENABLE_PEDIGREE_SHARE ? (
             <Pressable
               style={[styles.sheetItem, scaledUi.sheetItem, styles.sheetExportItem]}
               onPress={exportSelectedAsShare}
               disabled={exportBusy}
             >
               <Text style={[styles.sheetItemText, scaledUi.sheetItemText, styles.sheetExportItemText]}>
-                {exportBusy ? '내보내는 중…' : '이 사람을 기준으로 족보 내보내기'}
+                {exportBusy ? t('pedigree.exporting') : t('pedigree.exportAsShare')}
               </Text>
             </Pressable>
+            ) : null}
 
             {activeView === 'self' && selectedId === slots.selfId ? (
               <>
@@ -1318,19 +1411,19 @@ export function PedigreeScreen({
                   style={[styles.sheetItem, scaledUi.sheetItem, styles.lineageSwitch]}
                   onPress={() => switchLineageView('paternal')}
                 >
-                  <Text style={[styles.lineageSwitchText, scaledUi.lineageSwitchText]}>친가보기</Text>
+                  <Text style={[styles.lineageSwitchText, scaledUi.lineageSwitchText]}>{t('pedigree.paternalView')}</Text>
                 </Pressable>
                 <Pressable
                   style={[styles.sheetItem, scaledUi.sheetItem, styles.lineageSwitchMaternal]}
                   onPress={() => switchLineageView('maternal')}
                 >
-                  <Text style={[styles.lineageSwitchText, scaledUi.lineageSwitchText]}>외가보기</Text>
+                  <Text style={[styles.lineageSwitchText, scaledUi.lineageSwitchText]}>{t('pedigree.maternalView')}</Text>
                 </Pressable>
                 <Pressable
                   style={[styles.sheetItem, scaledUi.sheetItem, styles.lineageSwitchSpouse]}
                   onPress={() => switchLineageView('spouse')}
                 >
-                  <Text style={[styles.lineageSwitchText, scaledUi.lineageSwitchText]}>배우자보기</Text>
+                  <Text style={[styles.lineageSwitchText, scaledUi.lineageSwitchText]}>{t('pedigree.spouseView')}</Text>
                 </Pressable>
               </>
             ) : null}
@@ -1340,7 +1433,7 @@ export function PedigreeScreen({
                 style={[styles.sheetItem, scaledUi.sheetItem, styles.lineageSwitch]}
                 onPress={() => switchLineageView('paternal')}
               >
-                <Text style={[styles.lineageSwitchText, scaledUi.lineageSwitchText]}>친가보기</Text>
+                <Text style={[styles.lineageSwitchText, scaledUi.lineageSwitchText]}>{t('pedigree.paternalView')}</Text>
               </Pressable>
             ) : null}
 
@@ -1349,7 +1442,7 @@ export function PedigreeScreen({
                 style={[styles.sheetItem, scaledUi.sheetItem, styles.lineageSwitchMaternal]}
                 onPress={() => switchLineageView('maternal')}
               >
-                <Text style={[styles.lineageSwitchText, scaledUi.lineageSwitchText]}>외가보기</Text>
+                <Text style={[styles.lineageSwitchText, scaledUi.lineageSwitchText]}>{t('pedigree.maternalView')}</Text>
               </Pressable>
             ) : null}
 
@@ -1358,16 +1451,18 @@ export function PedigreeScreen({
                 style={[styles.sheetItem, scaledUi.sheetItem, styles.lineageSwitchSpouse]}
                 onPress={() => switchLineageView('spouse')}
               >
-                <Text style={[styles.lineageSwitchText, scaledUi.lineageSwitchText]}>배우자보기</Text>
+                <Text style={[styles.lineageSwitchText, scaledUi.lineageSwitchText]}>{t('pedigree.spouseView')}</Text>
               </Pressable>
             ) : null}
 
             {activeView !== 'self' ? (
               <Pressable style={[styles.sheetItem, scaledUi.sheetItem]} onPress={switchToSelfView}>
-                <Text style={[styles.sheetItemText, scaledUi.sheetItemText]}>나 시점으로 돌아가기</Text>
+                <Text style={[styles.sheetItemText, scaledUi.sheetItemText]}>{t('pedigree.backToSelf')}</Text>
               </Pressable>
             ) : null}
 
+            {!writeLocked ? (
+            <>
             <Pressable
               style={[styles.sheetItem, scaledUi.sheetItem]}
               onPress={() => {
@@ -1380,13 +1475,13 @@ export function PedigreeScreen({
                 );
                 setActionVisible(false);
                 if (resolved?.status === 'exists') {
-                  Alert.alert('이미 부가 있어요', '현재 인물에는 이미 아버지(부)가 연결되어 있습니다.');
+                  Alert.alert(t('pedigree.alreadyFatherTitle'), t('pedigree.alreadyFatherBody'));
                   return;
                 }
                 setPendingAdd({ kind: 'parent', childId: selectedId, parentType: 'father' });
               }}
             >
-              <Text style={[styles.sheetItemText, scaledUi.sheetItemText]}>부(아버지) 추가</Text>
+              <Text style={[styles.sheetItemText, scaledUi.sheetItemText]}>{t('pedigree.addFather')}</Text>
             </Pressable>
             <Pressable
               style={[styles.sheetItem, scaledUi.sheetItem]}
@@ -1400,13 +1495,13 @@ export function PedigreeScreen({
                 );
                 setActionVisible(false);
                 if (resolved?.status === 'exists') {
-                  Alert.alert('이미 모가 있어요', '현재 인물에는 이미 어머니(모)가 연결되어 있습니다.');
+                  Alert.alert(t('pedigree.alreadyMotherTitle'), t('pedigree.alreadyMotherBody'));
                   return;
                 }
                 setPendingAdd({ kind: 'parent', childId: selectedId, parentType: 'mother' });
               }}
             >
-              <Text style={[styles.sheetItemText, scaledUi.sheetItemText]}>모(어머니) 추가</Text>
+              <Text style={[styles.sheetItemText, scaledUi.sheetItemText]}>{t('pedigree.addMother')}</Text>
             </Pressable>
 
             {canAddSiblingFromNode(activeView, selectedId) ? (
@@ -1417,7 +1512,7 @@ export function PedigreeScreen({
                   setPendingAdd({ kind: 'sibling', ofId: selectedId });
                 }}
               >
-                <Text style={[styles.sheetItemText, scaledUi.sheetItemText]}>형제/자매 추가(같은 줄)</Text>
+                <Text style={[styles.sheetItemText, scaledUi.sheetItemText]}>{t('pedigree.addSibling')}</Text>
               </Pressable>
             ) : null}
 
@@ -1426,17 +1521,17 @@ export function PedigreeScreen({
               onPress={() => {
                 if (selected?.spouseId) {
                   setActionVisible(false);
-                  Alert.alert('이미 배우자가 있어요', '현재 인물에는 이미 배우자가 연결되어 있습니다.');
+                  Alert.alert(t('pedigree.alreadySpouseTitle'), t('pedigree.alreadySpouseBody'));
                   return;
                 }
                 setActionVisible(false);
                 setPendingAdd({ kind: 'spouse', ofId: selectedId });
               }}
             >
-              <Text style={[styles.sheetItemText, scaledUi.sheetItemText]}>배우자 추가</Text>
+              <Text style={[styles.sheetItemText, scaledUi.sheetItemText]}>{t('pedigree.addSpouse')}</Text>
             </Pressable>
 
-            <Text style={[styles.sheetHint, scaledUi.sheetHint]}>배우자가 있으면 자동으로 부모 2명 연결</Text>
+            <Text style={[styles.sheetHint, scaledUi.sheetHint]}>{t('pedigree.spouseHint')}</Text>
             <Pressable
               style={[styles.sheetItem, scaledUi.sheetItem]}
               onPress={() => {
@@ -1444,7 +1539,7 @@ export function PedigreeScreen({
                 setPendingAdd({ kind: 'child', parentId: selectedId });
               }}
             >
-              <Text style={[styles.sheetItemText, scaledUi.sheetItemText]}>자녀 추가</Text>
+              <Text style={[styles.sheetItemText, scaledUi.sheetItemText]}>{t('pedigree.addChild')}</Text>
             </Pressable>
 
             {selectedId !== slots.selfId ? (
@@ -1452,14 +1547,16 @@ export function PedigreeScreen({
                 style={[styles.sheetItem, scaledUi.sheetItem, styles.danger]}
                 onPress={() => {
                   setActionVisible(false);
-                  Alert.alert('삭제', '이 인물을 삭제할까요? (연결은 자동 해제됩니다)', [
-                    { text: '취소', style: 'cancel' },
-                    { text: '삭제', style: 'destructive', onPress: () => deletePerson(selectedId) },
+                  Alert.alert(t('pedigree.deleteTitle'), t('pedigree.deleteBody'), [
+                    { text: t('common.cancel'), style: 'cancel' },
+                    { text: t('common.delete'), style: 'destructive', onPress: () => deletePerson(selectedId) },
                   ]);
                 }}
               >
-                <Text style={[styles.sheetItemText, scaledUi.sheetItemText, styles.dangerText]}>삭제</Text>
+                <Text style={[styles.sheetItemText, scaledUi.sheetItemText, styles.dangerText]}>{t('common.delete')}</Text>
               </Pressable>
+            ) : null}
+            </>
             ) : null}
             </ScrollView>
           </Pressable>
@@ -1476,7 +1573,7 @@ export function PedigreeScreen({
 
       <AddPersonModal
         visible={editingId != null}
-        title={editSection === 'photo' ? '사진 추가·수정' : '자료·정보 입력'}
+        title={editSection === 'photo' ? t('pedigree.editPhoto') : t('pedigree.editInfo')}
         section={editSection}
         initialPerson={editingId ? peopleById[editingId] : undefined}
         auth={auth}
@@ -1488,22 +1585,26 @@ export function PedigreeScreen({
         visible={detailId != null}
         person={selectedDetail}
         onClose={() => setDetailId(null)}
-        onEdit={() => {
-          if (!detailId) return;
-          setDetailId(null);
-          setEditingId(detailId);
-        }}
+        onEdit={
+          writeLocked
+            ? undefined
+            : () => {
+                if (!detailId) return;
+                setDetailId(null);
+                setEditingId(detailId);
+              }
+        }
         onDelete={
-          detailId && detailId !== 'self'
-            ? () => {
+          writeLocked || !detailId || detailId === 'self'
+            ? undefined
+            : () => {
                 const idToDelete = detailId;
                 setDetailId(null);
-                Alert.alert('삭제', '이 인물을 삭제할까요? (연결은 자동 해제됩니다)', [
-                  { text: '취소', style: 'cancel' },
-                  { text: '삭제', style: 'destructive', onPress: () => deletePerson(idToDelete) },
+                Alert.alert(t('pedigree.deleteTitle'), t('pedigree.deleteBody'), [
+                  { text: t('common.cancel'), style: 'cancel' },
+                  { text: t('common.delete'), style: 'destructive', onPress: () => deletePerson(idToDelete) },
                 ]);
               }
-            : undefined
         }
       />
 
@@ -1515,42 +1616,44 @@ export function PedigreeScreen({
       >
         <Pressable style={styles.sheetBackdrop} onPress={() => setSettingsVisible(false)}>
           <Pressable style={[styles.settingsSheet, scaledUi.settingsSheet]} onPress={() => {}}>
-            <Text style={[styles.settingsTitle, scaledUi.settingsTitle]}>설정</Text>
+            <Text style={[styles.settingsTitle, scaledUi.settingsTitle]}>{t('settings.title')}</Text>
             {auth?.googleSub ? (
               <>
                 <Text style={[styles.settingsDesc, scaledUi.settingsDesc]}>
-                  계정: {auth.name?.trim() ? auth.name : auth.email ?? auth.googleSub}
+                  {t('pedigree.accountLabel', {
+                    name: auth.name?.trim() ? auth.name : auth.email ?? auth.googleSub,
+                  })}
                 </Text>
                 <Text style={[styles.settingsSubDesc, scaledUi.settingsSubDesc]}>{auth.email ?? auth.googleSub}</Text>
                 <Pressable style={[styles.settingsActionBtn, scaledUi.settingsActionBtn]} onPress={askSwitchAccount}>
-                  <Text style={[styles.settingsActionText, scaledUi.settingsActionText]}>구글 계정 변경</Text>
+                  <Text style={[styles.settingsActionText, scaledUi.settingsActionText]}>{t('settings.googleSwitch')}</Text>
                 </Pressable>
                 <Pressable style={[styles.settingsActionBtn, scaledUi.settingsActionBtn]} onPress={askLogout}>
-                  <Text style={[styles.settingsActionText, scaledUi.settingsActionText]}>로그아웃</Text>
+                  <Text style={[styles.settingsActionText, scaledUi.settingsActionText]}>{t('settings.logout')}</Text>
                 </Pressable>
               </>
             ) : (
               <>
-                <Text style={[styles.settingsDesc, scaledUi.settingsDesc]}>게스트 모드</Text>
+                <Text style={[styles.settingsDesc, scaledUi.settingsDesc]}>{t('settings.guestMode')}</Text>
                 <Text style={[styles.settingsSubDesc, scaledUi.settingsSubDesc]}>
-                  구글 연동 시 계정 정보를 관리합니다. 족보 데이터는 기기에 저장됩니다.
+                  {t('pedigree.guestDesc')}
                 </Text>
                 <Pressable style={[styles.settingsActionBtn, scaledUi.settingsActionBtn]} onPress={askLinkGoogle}>
-                  <Text style={[styles.settingsActionText, scaledUi.settingsActionText]}>구글 연동 시작</Text>
+                  <Text style={[styles.settingsActionText, scaledUi.settingsActionText]}>{t('settings.linkGoogle')}</Text>
                 </Pressable>
               </>
             )}
             <Pressable style={[styles.settingsActionBtn, scaledUi.settingsActionBtn]} onPress={rearrangePedigree}>
-              <Text style={[styles.settingsActionText, scaledUi.settingsActionText]}>족보 재배열</Text>
+              <Text style={[styles.settingsActionText, scaledUi.settingsActionText]}>{t('settings.rearrange')}</Text>
             </Pressable>
             <Pressable
               style={[styles.settingsActionBtn, scaledUi.settingsActionBtn, styles.settingsDangerBtn]}
               onPress={resetPedigree}
             >
-              <Text style={[styles.settingsActionText, scaledUi.settingsActionText, styles.settingsDangerText]}>족보 초기화</Text>
+              <Text style={[styles.settingsActionText, scaledUi.settingsActionText, styles.settingsDangerText]}>{t('settings.reset')}</Text>
             </Pressable>
             <Pressable style={[styles.settingsCloseBtn, scaledUi.settingsCloseBtn]} onPress={() => setSettingsVisible(false)}>
-              <Text style={[styles.settingsCloseBtnText, scaledUi.settingsCloseBtnText]}>닫기</Text>
+              <Text style={[styles.settingsCloseBtnText, scaledUi.settingsCloseBtnText]}>{t('common.close')}</Text>
             </Pressable>
           </Pressable>
         </Pressable>
@@ -1564,7 +1667,7 @@ export function PedigreeScreen({
 
       <Modal
         transparent
-        visible={importVisible}
+        visible={ENABLE_PEDIGREE_SHARE && importVisible}
         animationType="fade"
         onRequestClose={() => !importBusy && setImportVisible(false)}
       >
@@ -1573,14 +1676,14 @@ export function PedigreeScreen({
           onPress={() => !importBusy && setImportVisible(false)}
         >
           <Pressable style={[styles.settingsSheet, scaledUi.settingsSheet]} onPress={() => {}}>
-            <Text style={[styles.settingsTitle, scaledUi.settingsTitle]}>족보 불러오기</Text>
+            <Text style={[styles.settingsTitle, scaledUi.settingsTitle]}>{t('pedigree.import')}</Text>
             <Text style={[styles.settingsSubDesc, scaledUi.settingsSubDesc]}>
-              공유 키를 입력하면 서버에서 족보를 불러와 현재 족보를 교체합니다.
+              {t('pedigree.importDesc')}
             </Text>
             <TextInput
               value={importKey}
               onChangeText={setImportKey}
-              placeholder="예: KS2V24DKr2"
+              placeholder={t('pedigree.importPlaceholder')}
               autoCapitalize="none"
               autoCorrect={false}
               editable={!importBusy}
@@ -1592,7 +1695,7 @@ export function PedigreeScreen({
               disabled={importBusy}
             >
               <Text style={[styles.settingsActionText, scaledUi.settingsActionText]}>
-                {importBusy ? '불러오는 중…' : '확인'}
+                {importBusy ? t('pedigree.importing') : t('common.confirm')}
               </Text>
             </Pressable>
             <Pressable
@@ -1600,7 +1703,7 @@ export function PedigreeScreen({
               onPress={() => !importBusy && setImportVisible(false)}
               disabled={importBusy}
             >
-              <Text style={[styles.settingsCloseBtnText, scaledUi.settingsCloseBtnText]}>닫기</Text>
+              <Text style={[styles.settingsCloseBtnText, scaledUi.settingsCloseBtnText]}>{t('common.close')}</Text>
             </Pressable>
           </Pressable>
         </Pressable>
@@ -1608,15 +1711,15 @@ export function PedigreeScreen({
 
       <Modal
         transparent
-        visible={!!exportedKey}
+        visible={ENABLE_PEDIGREE_SHARE && !!exportedKey}
         animationType="fade"
         onRequestClose={() => setExportedKey(null)}
       >
         <Pressable style={styles.sheetBackdrop} onPress={() => setExportedKey(null)}>
           <Pressable style={[styles.settingsSheet, scaledUi.settingsSheet]} onPress={() => {}}>
-            <Text style={[styles.settingsTitle, scaledUi.settingsTitle]}>내보내기 완료</Text>
+            <Text style={[styles.settingsTitle, scaledUi.settingsTitle]}>{t('pedigree.exportDone')}</Text>
             <Text style={[styles.settingsSubDesc, scaledUi.settingsSubDesc]}>
-              아래 키를 상대방에게 전달하세요. 상대방은 「족보 불러오기」에서 이 키를 입력하면 됩니다.
+              {t('pedigree.exportDoneDesc')}
             </Text>
             <Text selectable style={styles.shareKeyValue}>
               {exportedKey}
@@ -1632,13 +1735,13 @@ export function PedigreeScreen({
                 }
               }}
             >
-              <Text style={[styles.settingsActionText, scaledUi.settingsActionText]}>키 공유하기</Text>
+              <Text style={[styles.settingsActionText, scaledUi.settingsActionText]}>{t('pedigree.shareKey')}</Text>
             </Pressable>
             <Pressable
               style={[styles.settingsCloseBtn, scaledUi.settingsCloseBtn]}
               onPress={() => setExportedKey(null)}
             >
-              <Text style={[styles.settingsCloseBtnText, scaledUi.settingsCloseBtnText]}>닫기</Text>
+              <Text style={[styles.settingsCloseBtnText, scaledUi.settingsCloseBtnText]}>{t('common.close')}</Text>
             </Pressable>
           </Pressable>
         </Pressable>
@@ -1652,33 +1755,35 @@ export function PedigreeScreen({
       >
         <Pressable style={styles.sheetBackdrop} onPress={() => setUsageVisible(false)}>
           <Pressable style={[styles.settingsSheet, scaledUi.settingsSheet]} onPress={() => {}}>
-            <Text style={[styles.settingsTitle, scaledUi.settingsTitle]}>사용법</Text>
-            <Text style={[styles.settingsDesc, scaledUi.settingsDesc]}>1) 인물 카드 탭 → 작업 메뉴 열기</Text>
+            <Text style={[styles.settingsTitle, scaledUi.settingsTitle]}>{t('pedigree.usage')}</Text>
+            <Text style={[styles.settingsDesc, scaledUi.settingsDesc]}>{t('pedigree.usage1')}</Text>
             <Text style={[styles.settingsSubDesc, scaledUi.settingsSubDesc]}>
-              부모/형제/배우자/자녀 추가, 정보 수정/삭제를 카드별로 실행할 수 있습니다.
+              {t('pedigree.usage1body')}
             </Text>
             {activeView === 'self' ? (
               <>
-                <Text style={[styles.settingsDesc, scaledUi.settingsDesc]}>2) 시점 전환</Text>
+                <Text style={[styles.settingsDesc, scaledUi.settingsDesc]}>{t('pedigree.usage2')}</Text>
                 <Text style={[styles.settingsSubDesc, scaledUi.settingsSubDesc]}>
-                  아버지/어머니/배우자 카드에서 해당 집안 시점으로 전환할 수 있습니다.
+                  {t('pedigree.usage2body')}
                 </Text>
               </>
             ) : null}
-            <Text style={[styles.settingsDesc, scaledUi.settingsDesc]}>{activeView === 'self' ? '3' : '2'}) 이동/확대</Text>
+            <Text style={[styles.settingsDesc, scaledUi.settingsDesc]}>
+              {t('pedigree.usageMove', { n: activeView === 'self' ? '3' : '2' })}
+            </Text>
             <Text style={[styles.settingsSubDesc, scaledUi.settingsSubDesc]}>
-              핀치로 확대/축소, 드래그로 화면을 이동할 수 있습니다.
+              {t('pedigree.usageMoveBody')}
             </Text>
             {activeView !== 'self' ? (
               <>
-                <Text style={[styles.settingsDesc, scaledUi.settingsDesc]}>3) 나 시점 버튼</Text>
+                <Text style={[styles.settingsDesc, scaledUi.settingsDesc]}>{t('pedigree.usageSelf')}</Text>
                 <Text style={[styles.settingsSubDesc, scaledUi.settingsSubDesc]}>
-                  오른쪽 위 「나 시점」 버튼을 누르면 나 시점으로 돌아갑니다.
+                  {t('pedigree.usageSelfBody')}
                 </Text>
               </>
             ) : null}
             <Pressable style={[styles.settingsCloseBtn, scaledUi.settingsCloseBtn]} onPress={() => setUsageVisible(false)}>
-              <Text style={[styles.settingsCloseBtnText, scaledUi.settingsCloseBtnText]}>닫기</Text>
+              <Text style={[styles.settingsCloseBtnText, scaledUi.settingsCloseBtnText]}>{t('common.close')}</Text>
             </Pressable>
           </Pressable>
         </Pressable>

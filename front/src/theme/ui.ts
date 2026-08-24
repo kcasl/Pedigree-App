@@ -1,8 +1,17 @@
 /** 앱 전역 UI 토큰 — 색·굵기·그림자 */
 export const ui = {
-  generationPalette: ['#D6E8FF', '#DDD0FF', '#F8C8E8', '#B8EBD0'] as const,
+  /** 맨 위 세대부터 빨·주·노·초·파·남·보 파스텔 */
+  generationPalette: [
+    '#F6C6C6',
+    '#F6D4B4',
+    '#F4E6A8',
+    '#C4E6C0',
+    '#C0D6F4',
+    '#C4C6EC',
+    '#E0C6EE',
+  ] as const,
   /** 증조할아버지·할머니 줄(및 그 형제) 노드 배경 */
-  greatAncestorSurface: '#E6E9EF',
+  greatAncestorSurface: '#F6C6C6',
   color: {
     text: '#0b1220',
     textSecondary: '#3f4f63',
@@ -23,15 +32,14 @@ export const ui = {
     overlay: 'rgba(15,23,42,0.38)',
     line: '#000000',
   },
-  generationLine(gen: number): string {
+  generationLine(gen: number, minGen = 0): string {
     const palette = this.generationPalette;
-    const idx = ((gen % palette.length) + palette.length) % palette.length;
+    const idx = Math.max(0, Math.min(palette.length - 1, gen - minGen));
     return palette[idx];
   },
-  /** 세대(가로줄)별 카드 배경 — 증조 줄은 파스텔 회색 */
-  generationSurface(gen: number): string {
-    if (gen <= -3) return this.greatAncestorSurface;
-    return this.generationLine(gen);
+  /** 세대(가로줄)별 카드 배경 — 화면 맨 위 줄부터 무지개 파스텔 */
+  generationSurface(gen: number, minGen = 0): string {
+    return this.generationLine(gen, minGen);
   },
   weight: {
     body: '600' as const,

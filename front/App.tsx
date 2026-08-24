@@ -24,7 +24,10 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { API_BASE_URL } from './src/config/api';
 import { ENABLE_SERVER_SYNC } from './src/config/features';
-import { PedigreeScreen } from './src/screens/PedigreeScreen';
+import { AuthenticatedApp } from './src/screens/AuthenticatedApp';
+import { TrialLicenseProvider } from './src/hooks/useTrialLicense';
+import { I18nProvider, useI18n } from './src/i18n';
+import { AppCredits } from './src/components/AppCredits';
 import { ui } from './src/theme/ui';
 
 const AUTH_STORAGE_KEY = 'auth.google.user.v1';
@@ -78,6 +81,21 @@ async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 }
 
 export default function App() {
+  return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <I18nProvider>
+          <TrialLicenseProvider>
+            <AppShell />
+          </TrialLicenseProvider>
+        </I18nProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
+  );
+}
+
+function AppShell() {
+  const { t } = useI18n();
   const [isBooting, setIsBooting] = useState(true);
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [user, setUser] = useState<StoredAuthUser | null>(null);
@@ -241,7 +259,7 @@ export default function App() {
       const result = await GoogleSignin.signIn();
       const signedInUser = resolveSignedInUser(result);
       if (!signedInUser?.email) {
-        Alert.alert('로그인 실패', '구글 계정 정보를 가져오지 못했어요.');
+        Alert.alert(t('auth.loginFailedTitle'), t('auth.loginFailedBody'));
         return;
       }
       const tokens = await GoogleSignin.getTokens();
@@ -262,7 +280,7 @@ export default function App() {
           accessToken: tokens.accessToken,
         };
       } catch {
-        Alert.alert('네트워크 안내', '서버 연결 없이 로그인했습니다. 연결되면 자동 동기화됩니다.');
+        Alert.alert(t('auth.networkTitle'), t('auth.networkBody'));
       }
       await migrateGuestPedigreeToGoogle(nextUser.googleSub);
       setUser(nextUser);
@@ -275,7 +293,7 @@ export default function App() {
       if (code === statusCodes.SIGN_IN_CANCELLED) return;
       if (code === statusCodes.IN_PROGRESS) return;
       if (code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
-        Alert.alert('로그인 불가', 'Google Play 서비스가 필요합니다.');
+        Alert.alert(t('auth.playServicesTitle'), t('auth.playServicesBody'));
         return;
       }
       const isDeveloperError =
@@ -284,13 +302,10 @@ export default function App() {
         message.includes('DEVELOPER_ERROR') ||
         message.includes('10:');
       if (isDeveloperError) {
-        Alert.alert(
-          '로그인 설정 오류',
-          'DEVELOPER_ERROR 입니다. Android 패키지명/SHA-1/OAuth 클라이언트 설정을 확인하세요.',
-        );
+        Alert.alert(t('auth.configErrorTitle'), t('auth.configErrorBody'));
         return;
       }
-      Alert.alert('로그인 오류', `구글 로그인 중 오류가 발생했습니다. (${code ?? 'unknown'})`);
+      Alert.alert(t('auth.loginErrorTitle'), t('auth.loginErrorBody', { code: code ?? 'unknown' }));
     } finally {
       setIsSigningIn(false);
     }
@@ -333,59 +348,61 @@ export default function App() {
   const isAuthenticated = !!user || isGuestMode;
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <SafeAreaProvider>
-        <StatusBar barStyle="dark-content" backgroundColor={ui.color.surface} translucent={false} />
-        {isBooting ? (
-          <View style={styles.loadingWrap}>
-            <ActivityIndicator size="large" color={ui.color.accent} />
-            <Text style={styles.loadingText}>앱 준비 중...</Text>
-          </View>
-        ) : isAuthenticated ? (
-          <PedigreeScreen
-            auth={
-              user
-                ? {
-                    googleSub: user.googleSub,
-                    accessToken: user.accessToken,
-                    email: user.email,
-                    name: user.name ?? undefined,
-                  }
-                : undefined
-            }
-            onRequestLogout={onRequestLogout}
-            onRequestSwitchAccount={onRequestSwitchAccount}
-            onRequestLinkGoogle={onRequestLinkGoogle}
-          />
-        ) : (
-          <View style={styles.authWrap}>
-            <Text style={styles.authTitle}>Pedigree App</Text>
-            <Text style={styles.authSub}>가계도를 사용하려면 로그인해 주세요.</Text>
+    <>
+      <StatusBar barStyle="dark-content" backgroundColor={ui.color.surface} translucent={false} />
+      {isBooting ? (
+        <View style={styles.loadingWrap}>
+          <ActivityIndicator size="large" color={ui.color.accent} />
+          <Text style={styles.loadingText}>{t('auth.preparing')}</Text>
+        </View>
+      ) : isAuthenticated ? (
+        <AuthenticatedApp
+          auth={
+            user
+              ? {
+                  googleSub: user.googleSub,
+                  accessToken: user.accessToken,
+                  email: user.email,
+                  name: user.name ?? undefined,
+                }
+              : undefined
+          }
+          isGuest={isGuestMode && !user}
+          onRequestLogout={onRequestLogout}
+          onRequestSwitchAccount={onRequestSwitchAccount}
+          onRequestLinkGoogle={onRequestLinkGoogle}
+        />
+      ) : (
+        <View style={styles.authWrap}>
+          <View style={styles.authBody}>
+          <Text style={styles.authTitle}>{t('auth.title')}</Text>
+          <Text style={styles.authSub}>{t('auth.subtitle')}</Text>
 
-            <Pressable
-              style={({ pressed }) => [
-                styles.googleBtn,
-                pressed && styles.pressed,
-                isSigningIn && styles.disabledBtn,
-              ]}
-              disabled={isSigningIn}
-              onPress={onGoogleLogin}
-            >
-              <Text style={styles.googleBtnText}>
-                {isSigningIn ? '로그인 중...' : 'Google로 로그인'}
-              </Text>
-            </Pressable>
+          <Pressable
+            style={({ pressed }) => [
+              styles.googleBtn,
+              pressed && styles.pressed,
+              isSigningIn && styles.disabledBtn,
+            ]}
+            disabled={isSigningIn}
+            onPress={onGoogleLogin}
+          >
+            <Text style={styles.googleBtnText}>
+              {isSigningIn ? t('auth.signingIn') : t('auth.googleLogin')}
+            </Text>
+          </Pressable>
 
-            <Pressable
-              style={({ pressed }) => [styles.guestBtn, pressed && styles.pressed]}
-              onPress={onContinueWithoutLogin}
-            >
-              <Text style={styles.guestBtnText}>로그인 없이 시작</Text>
-            </Pressable>
+          <Pressable
+            style={({ pressed }) => [styles.guestBtn, pressed && styles.pressed]}
+            onPress={onContinueWithoutLogin}
+          >
+            <Text style={styles.guestBtnText}>{t('auth.startGuest')}</Text>
+          </Pressable>
           </View>
-        )}
-      </SafeAreaProvider>
-    </GestureHandlerRootView>
+          <AppCredits compact />
+        </View>
+      )}
+    </>
   );
 }
 
@@ -405,8 +422,14 @@ const styles = StyleSheet.create({
   authWrap: {
     flex: 1,
     backgroundColor: ui.color.surface,
-    justifyContent: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 24,
+    paddingBottom: 28,
+    paddingTop: 24,
+  },
+  authBody: {
+    flex: 1,
+    justifyContent: 'center',
     gap: 10,
   },
   authTitle: {

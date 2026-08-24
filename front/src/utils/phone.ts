@@ -1,26 +1,44 @@
 import { Alert, Linking } from 'react-native';
+import { t } from '../i18n/translate';
 
 export function normalizePhoneDigits(phone?: string): string {
   if (!phone) return '';
   return phone.replace(/\D/g, '');
 }
 
+/** 010-XXXX-XXXX 처럼 가운데 하이픈을 넣어 보여 준다. */
 export function formatPhoneDisplay(phone?: string): string {
   if (!phone) return '';
   const digits = normalizePhoneDigits(phone);
-  if (digits.length === 11) {
-    return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
+  if (!digits) return '';
+
+  if (digits.startsWith('02')) {
+    if (digits.length <= 2) return digits;
+    if (digits.length <= 5) return `${digits.slice(0, 2)}-${digits.slice(2)}`;
+    if (digits.length <= 9) {
+      return `${digits.slice(0, 2)}-${digits.slice(2, 5)}-${digits.slice(5)}`;
+    }
+    return `${digits.slice(0, 2)}-${digits.slice(2, 6)}-${digits.slice(6, 10)}`;
   }
+
+  if (digits.startsWith('01')) {
+    if (digits.length <= 3) return digits;
+    if (digits.length <= 7) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+    return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7, 11)}`;
+  }
+
+  if (digits.length <= 3) return digits;
+  if (digits.length <= 7) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
   if (digits.length === 10) {
     return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`;
   }
-  return phone;
+  return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7, 11)}`;
 }
 
 export async function openPhoneDialer(phone?: string): Promise<boolean> {
   const digits = normalizePhoneDigits(phone);
   if (!digits) {
-    Alert.alert('연락처 없음', '전화번호가 등록되어 있지 않습니다.');
+    Alert.alert(t('phone.noContactTitle'), t('phone.noPhone'));
     return false;
   }
 
@@ -28,13 +46,13 @@ export async function openPhoneDialer(phone?: string): Promise<boolean> {
   try {
     const canOpen = await Linking.canOpenURL(url);
     if (!canOpen) {
-      Alert.alert('전화 연결 실패', '기기에서 전화 앱을 열 수 없습니다.');
+      Alert.alert(t('phone.dialFailTitle'), t('phone.dialFailNoApp'));
       return false;
     }
     await Linking.openURL(url);
     return true;
   } catch {
-    Alert.alert('전화 연결 실패', '전화 앱을 여는 중 오류가 발생했습니다.');
+    Alert.alert(t('phone.dialFailTitle'), t('phone.dialFailError'));
     return false;
   }
 }

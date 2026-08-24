@@ -90,7 +90,9 @@ describe('rebaseStoreAroundPerson', () => {
     const next = rebaseStoreAroundPerson(baseStore(self), 'me_c2_0', 'self');
     expect(next.views.self.me_sib2?.name).toBe('아들');
     expect(next.views.self.me_father?.name).toBe('나');
-    expect(next.views.self.me_mother?.name).toBe('배우자');
+    expect(next.views.self.me_mother?.name).toBe('어머니');
+    expect(next.views.self.me_sib2?.spouseId).toBeUndefined();
+    expect(next.views.self.me_sib2_sp).toBeUndefined();
   });
 
   it('places daughter as sibling of son-focal after reconcile import', () => {
@@ -120,8 +122,8 @@ describe('rebaseStoreAroundPerson', () => {
       'self',
     );
     const imported = syncAllViews(reconcileStore(rebased));
-    expect(imported.views.self.me_mgf?.name).toBe('배우자 아버지');
-    expect(imported.views.self.me_mgm?.name).toBe('배우자 어머니');
+    expect(imported.views.self.me_mgf?.name).toBe('외할아버지');
+    expect(imported.views.self.me_mgm?.name).toBe('외할머니');
   });
 
   it('매형 초점: 매형=나, 누나=배우자, 원본 나·형은 배우자 집안 형제', () => {
@@ -261,7 +263,7 @@ describe('rebaseStoreAroundPerson', () => {
 
     const next = rebaseStoreAroundPerson(store, 'me_c2_0', 'self');
     const mother = next.views.self.me_mother;
-    expect(mother?.name).toBe('배우자');
+    expect(mother?.name).toBe('어머니');
     expect(mother?.fatherId).toBeTruthy();
     expect(mother?.motherId).toBeTruthy();
 
@@ -463,7 +465,9 @@ describe('rebaseStoreAroundPerson', () => {
     const next = rebaseStoreAroundPerson(store, 'me_c2_0', 'self');
     expect(next.views.self.me_sib2?.name).toBe('나의 아들');
     expect(next.views.self.me_father?.name).toBe('나');
-    expect(next.views.self.me_mother?.name).toBe('배우자');
+    expect(next.views.self.me_mother?.name).toBe('어머니');
+    expect(next.views.self.me_sib2?.spouseId).toBeUndefined();
+    expect(next.views.self.me_sib2_sp).toBeUndefined();
 
     const father = next.views.self.me_father;
     const uncles = Object.values(next.views.self)
@@ -484,10 +488,10 @@ describe('rebaseStoreAroundPerson', () => {
     );
     expect(siblingOfSon.map(s => s.name)).toContain('나의 딸');
 
-    expect(next.views.self.me_mgf?.name).toBe('배우자 아버지');
-    expect(next.views.self.me_mgm?.name).toBe('배우자 어머니');
+    expect(next.views.self.me_mgf?.name).toBe('외할아버지');
+    expect(next.views.self.me_mgm?.name).toBe('외할머니');
     expect(next.views.maternal[slotIdsForView('maternal').father]?.name).toBe(
-      '배우자 아버지',
+      '외할아버지',
     );
 
     const cousins = Object.values(next.views.self).filter(person => {
@@ -502,8 +506,11 @@ describe('rebaseStoreAroundPerson', () => {
       );
     });
     expect(
-      cousins.filter(c => /^(형|큰형|누나|남동생)의 (아들|딸|손자)$/.test(c.name.trim())).length,
+      cousins.filter(c => /사촌|형의 아들|형의 딸|큰형의 아들|누나의 아들/.test(c.name.trim())).length,
     ).toBeGreaterThan(0);
+
+    const hyungCopies = Object.values(next.views.self).filter(person => person.name === '형');
+    expect(hyungCopies.length).toBeLessThanOrEqual(1);
   });
 
   it('여성 나에서 자식 기준이면 오빠·언니가 외삼촌·이모 자리로 간다', () => {
@@ -615,5 +622,89 @@ describe('rebaseStoreAroundPerson', () => {
     expect(next.views.spouse[spo.selfId]?.name).toBe('배우자');
     expect(next.views.spouse[spo.father]?.name).toBe('장인');
     expect(next.views.spouse[spo.mother]?.name).toBe('장모');
+  });
+
+  it('기본 템플릿 이모·삼촌은 나 화면에 몰아넣지 않는다', () => {
+    const store = syncAllViews({
+      version: 2,
+      activeView: 'self',
+      views: {
+        self: createViewTemplate('self'),
+        paternal: createViewTemplate('paternal'),
+        maternal: createViewTemplate('maternal'),
+        spouse: createViewTemplate('spouse'),
+      },
+    });
+    const next = rebaseStoreAroundPerson(store, 'me_sib2', 'self');
+    const mother = next.views.self.me_mother;
+    const maternalSibs = Object.values(next.views.self)
+      .filter(
+        person =>
+          person.id !== 'me_mother' &&
+          person.fatherId === mother?.fatherId &&
+          person.motherId === mother?.motherId,
+      )
+      .map(person => person.name);
+    expect(maternalSibs).not.toEqual(expect.arrayContaining(['이모', '삼촌']));
+  });
+
+  it('아들 기준이면 실데이터 배우자 형제만 외가 프리셋에 실린다', () => {
+    const store = syncAllViews({
+      version: 2,
+      activeView: 'self',
+      views: {
+        self: createViewTemplate('self'),
+        paternal: createViewTemplate('paternal'),
+        maternal: createViewTemplate('maternal'),
+        spouse: createViewTemplate('spouse'),
+      },
+    });
+    const next = rebaseStoreAroundPerson(store, 'me_c2_0', 'self');
+    const mother = next.views.self.me_mother;
+    expect(mother?.name).toBe('어머니');
+    expect(next.views.self.me_mgf?.name).toMatch(/외할아버지/);
+    const maternalSibs = Object.values(next.views.self)
+      .filter(
+        person =>
+          person.id !== 'me_mother' &&
+          !!mother?.fatherId &&
+          person.fatherId === mother.fatherId &&
+          person.motherId === mother.motherId,
+      )
+      .map(person => person.name);
+    expect(maternalSibs.join(',')).not.toMatch(/배우자 형|배우자 오빠/);
+    expect(Object.keys(next.views.maternal).length).toBeGreaterThan(0);
+  });
+
+  it('실데이터 배우자가 없으면 배우자 집안을 만들지 않는다', () => {
+    const self = createViewTemplate('self');
+    delete self.me_sib2_sp;
+    self.me_sib2 = { ...self.me_sib2, spouseId: undefined };
+    const next = rebaseStoreAroundPerson(baseStore(self), 'me_sib2', 'self');
+    expect(Object.keys(next.views.spouse)).toHaveLength(0);
+  });
+
+  it('증조가 있으면 아들 기준에서 한 세대를 더 올린다', () => {
+    const self = familyWithSiblingsAndKids();
+    self.me_ggf = p({
+      id: 'me_ggf',
+      name: '증조실명',
+      gender: 'male',
+      spouseId: 'me_ggm',
+    });
+    self.me_ggm = p({
+      id: 'me_ggm',
+      name: '증조할머니실명',
+      gender: 'female',
+      spouseId: 'me_ggf',
+    });
+    self.me_gf = { ...self.me_gf, fatherId: 'me_ggf', motherId: 'me_ggm' };
+
+    const next = rebaseStoreAroundPerson(baseStore(self), 'me_c2_0', 'self');
+    expect(next.views.self.me_sib2?.name).toBe('아들');
+    expect(next.views.self.me_ggf?.name).toBe('친할아버지');
+    const ggf = next.views.self.me_ggf;
+    expect(ggf?.fatherId).toBeTruthy();
+    expect(next.views.self[ggf!.fatherId!]?.name).toBe('증조실명');
   });
 });

@@ -276,4 +276,44 @@ describe('default pedigree smoke', () => {
     expect(cousin.y).toBeGreaterThan(hyung.y);
     expect(Math.abs(cousin.x + cousin.width / 2 - (hyung.x + hyung.width / 2))).toBeLessThan(200);
   });
+
+  it('places 외가 이모 to the right of 어머니', () => {
+    const people = createViewTemplate('self', '2020-01-01T00:00:00.000Z');
+    const slots = slotIdsForView('self');
+    const p = (id: string, name: string, extra: Partial<Person> = {}): Person => ({
+      id,
+      name,
+      createdAt: '2020-01-01T00:00:00.000Z',
+      gender: 'unknown',
+      ...extra,
+    });
+    people.me_msib_emo = p('me_msib_emo', '이모', {
+      gender: 'female',
+      fatherId: slots.mgf,
+      motherId: slots.mgm,
+    });
+    people.me_msib_sam = p('me_msib_sam', '삼촌', {
+      gender: 'male',
+      fatherId: slots.mgf,
+      motherId: slots.mgm,
+    });
+    people.me_cousin_emo = p('me_cousin_emo', '이모의 아들', {
+      gender: 'male',
+      fatherId: 'me_msib_emo',
+    });
+
+    const layout = buildStandardPedigreeLayout(people, { view: 'self' });
+    const mother = layout.nodeById[slots.mother];
+    const emo = layout.nodeById.me_msib_emo;
+    const sam = layout.nodeById.me_msib_sam;
+    const cousin = layout.nodeById.me_cousin_emo;
+    const mgf = layout.nodeById[slots.mgf];
+    expect(emo).toBeTruthy();
+    expect(sam).toBeTruthy();
+    expect(mgf).toBeTruthy();
+    expect(emo.x).toBeGreaterThan(mother.x);
+    expect(sam.x).toBeGreaterThan(mother.x);
+    expect(cousin).toBeTruthy();
+    expect(cousin.y).toBeGreaterThan(emo.y);
+  });
 });

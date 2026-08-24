@@ -13,7 +13,9 @@ import { ui } from '../theme/ui';
 import { scaleSize } from '../theme/responsive';
 import { PERSON_NODE_METRICS, STANDARD_LAYOUT_DEFAULTS } from '../utils/standardLayout';
 import { internationalAge } from '../utils/date';
-import { isGreatGrandparentNode, resolveNodeDisplayName } from '../utils/standardTemplate';
+import { resolveNodeDisplayName } from '../utils/standardTemplate';
+import { formatPhoneDisplay } from '../utils/phone';
+import { useI18n } from '../i18n';
 
 const NODE_TEXT = { allowFontScaling: false, maxFontSizeMultiplier: 1 } as const;
 const BASE_CARD_WIDTH = STANDARD_LAYOUT_DEFAULTS.cardWidth;
@@ -29,6 +31,7 @@ type Props = {
   height?: number;
   highlighted?: boolean;
   generation?: number;
+  minGeneration?: number;
   referenceDate?: Date;
   activeView?: ActiveView;
 };
@@ -38,18 +41,6 @@ type FallbackAvatarTheme = {
   fg: string;
   border: string;
 };
-
-function formatPhoneForNode(phone?: string): string {
-  if (!phone) return '';
-  const digits = phone.replace(/\D/g, '');
-  if (digits.length === 11) {
-    return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
-  }
-  if (digits.length === 10) {
-    return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`;
-  }
-  return phone;
-}
 
 function fallbackAvatarTheme(gender?: Person['gender']): FallbackAvatarTheme {
   if (gender === 'male') {
@@ -83,19 +74,21 @@ export function PersonNodeCard({
   height = BASE_CARD_HEIGHT,
   highlighted,
   generation = 0,
+  minGeneration = 0,
   referenceDate,
   activeView,
 }: Props) {
+  const { t, displayKinship, displayOrdinal } = useI18n();
   const today = referenceDate ?? new Date();
   const personName = person
-    ? resolveNodeDisplayName(activeView, person.id, person.name)
-    : '추가';
+    ? displayKinship(resolveNodeDisplayName(activeView, person.id, person.name))
+    : t('pedigree.addShort');
   const personAge = person ? internationalAge(person.birthDate, today) : null;
 
-  const rowBg = useMemo(() => {
-    if (person && isGreatGrandparentNode(person, activeView)) return ui.greatAncestorSurface;
-    return ui.generationSurface(generation);
-  }, [person, generation, activeView]);
+  const rowBg = useMemo(
+    () => ui.generationSurface(generation, minGeneration),
+    [generation, minGeneration],
+  );
 
   const avatarTheme = fallbackAvatarTheme(person?.gender);
   const cardScale = width / BASE_CARD_WIDTH;
@@ -192,11 +185,11 @@ export function PersonNodeCard({
     >
       <View style={[styles.header, scaled.header]}>
         <Text {...NODE_TEXT} style={[styles.badge, scaled.badge]}>
-          {label}
+          {displayKinship(label)}
         </Text>
         {ordinalLabel ? (
           <Text {...NODE_TEXT} style={[styles.ordinalBadge, scaled.ordinalBadge]}>
-            {ordinalLabel}
+            {displayOrdinal(ordinalLabel)}
           </Text>
         ) : null}
       </View>
@@ -239,7 +232,7 @@ export function PersonNodeCard({
             </Text>
           ) : null}
           <Text {...NODE_TEXT} style={[styles.sub, scaled.sub]} numberOfLines={1}>
-            {person?.phone ? formatPhoneForNode(person.phone) : person ? ' ' : '탭해서 등록'}
+            {person?.phone ? formatPhoneDisplay(person.phone) : person ? ' ' : t('pedigree.tapToRegister')}
           </Text>
         </View>
       </View>

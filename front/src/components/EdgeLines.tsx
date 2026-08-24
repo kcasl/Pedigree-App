@@ -21,10 +21,10 @@ import type { Edge, PositionedNode } from '../utils/pedigreeLayout';
 
 export const EDGE_DRAW_CONFIG = {
   enabled: true,
-  /** 카드 하단 → 부부 가로선 (0이면 카드 밑변에 붙음) */
-  spouseLineOffset: 0,
+  /** 카드 하단 → 부부 가로선. 0이면 밑변에 붙어 ㅡ처럼 보임 */
+  spouseLineOffset: 16,
   /** 부부선~자녀 rail 추가 하강 */
-  railDrop: 0,
+  railDrop: 6,
   trunkGap: 18,
   childGap: 14,
   strokeWidth: 2.5,
@@ -198,7 +198,7 @@ function coupleBarY(left: PositionedNode, right: PositionedNode, stroke: number)
   return parentBottom + EDGE_DRAW_CONFIG.spouseLineOffset + stroke / 2;
 }
 
-/** 각 배우자 카드 하단 중앙 → 부부 가로선 (떨어져 보이지 않게 카드 안으로 살짝 겹침) */
+/** 각 배우자 카드 하단 중앙 → 아래로 내린 부부 가로선 */
 function drawCoupleDropStubs(
   out: React.ReactNode[],
   key: string,
@@ -211,8 +211,8 @@ function drawCoupleDropStubs(
   const join = stroke / 2;
   const leftX = cx(left);
   const rightX = cx(right);
-  const leftTop = bottom(left) - join;
-  const rightTop = bottom(right) - join;
+  const leftTop = bottom(left);
+  const rightTop = bottom(right);
   out.push(
     <View
       key={`c_stub_l_${key}`}

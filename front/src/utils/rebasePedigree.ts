@@ -1,9 +1,10 @@
 /**
- * 선택한 인물을 "나"(me_sib2)로 두고 족보를 호적 구조로 재구성한다.
+ * 선택한 인물을 "나"(me_sib2)로 두고 족보를 다시 그린다.
  *
- * 네 보기(나/친가/외가/배우자 집안)를 한 관계 그래프로 합친 뒤,
- * 초점과의 촌수(직계 존속·형제·부모/조부모의 형제와 그 비속)로 유지 집합을 정한다.
- * 특정 예시 슬롯에 의존하지 않는다.
+ * 나 보기: 직계·형제·자녀와 부모 형제(윙)만.
+ * 친가/외가: 기존 프리셋 칸을 채울 사람이 있을 때만.
+ * 배우자 집안: 실데이터 배우자가 있을 때만.
+ * 증조 위에 한 세대가 더 있으면 칸을 올리고, 손자 아래가 있으면 내린다.
  */
 
 import type { ActiveView, PedigreeStore } from '../types/lineage';
@@ -20,8 +21,8 @@ import {
 import { nowIso } from './date';
 import { mergeUserFieldsFromSource } from './personPersist';
 import { SELF_SLOT_INDEX, reconcileStore, slotIdsForView } from './standardTemplate';
-import { kinshipLabelToDisplayName } from './kinship';
-import { buildViewKinshipLabels } from './viewSync';
+import { buildKinshipLabels, kinshipLabelToDisplayName } from './kinship';
+import { buildViewKinshipLabels, resolveUserBloodIdInView } from './viewSync';
 
 type ViewPrefix = 'me' | 'pat' | 'mat' | 'spo';
 
@@ -139,19 +140,47 @@ function isCousinOfFocal(
   person: Person,
   focalId: PersonId,
 ): boolean {
-  const father = person.fatherId ? people[person.fatherId] : undefined;
-  const mother = person.motherId ? people[person.motherId] : undefined;
-  return (
-    (!!father && isParentSiblingOfFocal(people, father, focalId)) ||
-    (!!mother && isParentSiblingOfFocal(people, mother, focalId))
-  );
+  return !!cousinUncleOf(people, person, focalId);
 }
 
-function hasAnyChild(
+function cousinUncleOf(
   people: Record<PersonId, Person>,
   person: Person,
+  focalId: PersonId,
+): Person | undefined {
+  for (const parentId of [person.fatherId, person.motherId]) {
+    const parent = parentId ? people[parentId] : undefined;
+    if (parent && isParentSiblingOfFocal(people, parent, focalId)) return parent;
+  }
+  return undefined;
+}
+
+function isGrandparentSiblingOfFocal(
+  people: Record<PersonId, Person>,
+  person: Person,
+  focalId: PersonId,
 ): boolean {
-  return collectCoupleChildren(people, person.id, person.spouseId).length > 0;
+  const focal = people[focalId];
+  if (!focal || person.id === focalId) return false;
+  for (const parentId of [focal.fatherId, focal.motherId]) {
+    const parent = parentId ? people[parentId] : undefined;
+    if (!parent) continue;
+    for (const gpId of [parent.fatherId, parent.motherId]) {
+      const gp = gpId ? people[gpId] : undefined;
+      if (!gp || gp.id === person.id) continue;
+      const sibs = collectCoupleChildren(people, gp.fatherId, gp.motherId);
+      if (sibs.includes(person.id)) return true;
+      if (
+        person.fatherId &&
+        person.motherId &&
+        person.fatherId === gp.fatherId &&
+        person.motherId === gp.motherId
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 function isChildOfFocal(
@@ -164,7 +193,11 @@ function isChildOfFocal(
   return collectCoupleChildren(people, focalId, focal.spouseId).includes(person.id);
 }
 
-/** 기본 형제 칸은 유지. 빈 사촌·손자 템플릿은 제외. */
+/** 실데이터이거나, 나 프리셋이 한 세대 올라가 삼촌/고모가 되는 경우만 유지. */
+function isSelfPresetSiblingName(name: string): boolean {
+  return /^(형|큰형|나|누나|남동생|오빠|언니|여동생)$/.test(name.trim());
+}
+
 function shouldKeepPerson(
   people: Record<PersonId, Person>,
   person: Person | undefined,
@@ -172,21 +205,22 @@ function shouldKeepPerson(
 ): boolean {
   if (!person) return false;
   if (person.id === focalId) return true;
-  if (isExportableRelative(person)) return true;
-  if (isUnusedTemplatePerson(person)) {
-    if (isChildOfFocal(people, person, focalId)) {
-      const name = person.name?.trim() ?? '';
-      return /^(나의 아들|나의 딸)$/.test(name) || !/손자$/.test(name);
-    }
-    if (isSiblingOfFocal(people, person, focalId)) return true;
-    if (isCousinOfFocal(people, person, focalId)) return true;
-    if (isParentSiblingOfFocal(people, person, focalId) && hasAnyChild(people, person)) {
-      return true;
-    }
-    return false;
+  if (isSiblingOfFocal(people, person, focalId)) return true;
+  if (isChildOfFocal(people, person, focalId)) {
+    const name = person.name?.trim() ?? '';
+    if (/손자$/.test(name) && isUnusedTemplatePerson(person)) return false;
+    return true;
   }
-  if (isCousinOfFocal(people, person, focalId)) return true;
-  return true;
+  if (isParentSiblingOfFocal(people, person, focalId)) {
+    return isExportableRelative(person) || isSelfPresetSiblingName(person.name ?? '');
+  }
+  if (isCousinOfFocal(people, person, focalId)) {
+    if (isExportableRelative(person)) return true;
+    const uncle = cousinUncleOf(people, person, focalId);
+    if (!uncle) return false;
+    return isExportableRelative(uncle) || isSelfPresetSiblingName(uncle.name ?? '');
+  }
+  return isExportableRelative(person);
 }
 
 function isGhostTemplateRelative(
@@ -199,6 +233,7 @@ function isGhostTemplateRelative(
   if (isSiblingOfFocal(people, person, focalId)) return false;
   if (isCousinOfFocal(people, person, focalId)) return false;
   if (isParentSiblingOfFocal(people, person, focalId)) return false;
+  if (isGrandparentSiblingOfFocal(people, person, focalId)) return false;
   if (isChildOfFocal(people, person, focalId)) {
     return /손자$/.test(person.name?.trim() ?? '');
   }
@@ -227,8 +262,16 @@ function pruneGhostPeople(
   return out;
 }
 
-/** 불러오기 후: 빈 템플릿 유령을 빼고 슬롯 구조를 맞춘다. */
+/** 현재 나(self 초점) 기준으로 네 보기를 다시 짠다. */
 export function rearrangePedigreeStore(store: PedigreeStore): PedigreeStore {
+  const selfId = slotIdsForView('self').selfId;
+  if (store.views.self?.[selfId]) {
+    try {
+      return rebaseStoreAroundPerson(store, selfId, 'self');
+    } catch {
+      // 초점 해석 실패 시 유령만 정리
+    }
+  }
   const views: PedigreeStore['views'] = { ...store.views };
   for (const view of ALL_VIEWS) {
     const people = store.views[view] ?? {};
@@ -286,6 +329,15 @@ function pickCanonicalId(members: ViewMember[]): PersonId {
   return sorted[0]!.id;
 }
 
+function shouldPreserveLineageParentLink(view: ActiveView, id: PersonId): boolean {
+  if (view === 'self') return true;
+  const slots = slotIdsForView(view);
+  const focalKids = slots.children[SELF_SLOT_INDEX] ?? [];
+  if (focalKids.includes(id)) return false;
+  if (/_gc\d+_/.test(id) && id.includes(`_gc${SELF_SLOT_INDEX}_`)) return false;
+  return true;
+}
+
 function pickLinkedId(
   members: ViewMember[],
   role: 'fatherId' | 'motherId' | 'spouseId',
@@ -300,20 +352,26 @@ function pickLinkedId(
   const memberIsExportable = members.some(m => isExportableRelative(m.person));
   const selfSpouseId = slotIdsForView('self').spouseId;
   const isSelfSpouse = members.some(m => m.view === 'self' && m.id === selfSpouseId);
+  let fallback: PersonId | undefined;
   for (const member of members) {
     const raw = member.person[role];
     if (!raw || !views[member.view]?.[raw]) continue;
-    if (role === 'spouseId') return canonOf(member.view, raw);
+    const linked = canonOf(member.view, raw);
+    if (!linked) continue;
+    if (role === 'spouseId') return linked;
     const parent = views[member.view][raw];
     if (
       memberIsExportable ||
       parentIsAnchor(parent, member.view, raw, member.id, views) ||
       (isSelfSpouse && member.view === 'spouse')
     ) {
-      return canonOf(member.view, raw);
+      return linked;
+    }
+    if (shouldPreserveLineageParentLink(member.view, member.id)) {
+      fallback ??= linked;
     }
   }
-  return undefined;
+  return fallback;
 }
 
 function seedStaticIdentityUnions(union: (a: string, b: string) => void): void {
@@ -675,7 +733,23 @@ function ensurePerson(
   source: Person,
   links: { fatherId?: PersonId; motherId?: PersonId; spouseId?: PersonId },
   createdAt: string,
-): void {
+  placed?: Map<PersonId, PersonId>,
+): PersonId {
+  const already = placed?.get(source.id);
+  if (already && out[already]) {
+    const cur = out[already];
+    out[already] = {
+      ...cur,
+      fatherId:
+        cur.fatherId && out[cur.fatherId] ? cur.fatherId : links.fatherId ?? cur.fatherId,
+      motherId:
+        cur.motherId && out[cur.motherId] ? cur.motherId : links.motherId ?? cur.motherId,
+      spouseId:
+        cur.spouseId && out[cur.spouseId] ? cur.spouseId : links.spouseId ?? cur.spouseId,
+    };
+    return already;
+  }
+
   const base = userFieldsFrom(source, createdAt);
   const existing = out[id];
   out[id] = {
@@ -686,6 +760,8 @@ function ensurePerson(
     motherId: links.motherId,
     spouseId: links.spouseId,
   };
+  placed?.set(source.id, id);
+  return id;
 }
 
 function placeIfSource(
@@ -694,9 +770,10 @@ function placeIfSource(
   source: Person | undefined,
   links: { fatherId?: PersonId; motherId?: PersonId; spouseId?: PersonId },
   createdAt: string,
-): void {
-  if (!source) return;
-  ensurePerson(out, slotId, source, links, createdAt);
+  placed?: Map<PersonId, PersonId>,
+): PersonId | undefined {
+  if (!source) return undefined;
+  return ensurePerson(out, slotId, source, links, createdAt, placed);
 }
 
 function placeNatalParentsOf(
@@ -704,38 +781,155 @@ function placeNatalParentsOf(
   sourcePeople: Record<PersonId, Person>,
   childSrc: Person | undefined,
   childSlotId: PersonId,
-  skipFatherSlot: PersonId,
-  skipMotherSlot: PersonId,
+  skipFatherSrcId: PersonId | undefined,
+  skipMotherSrcId: PersonId | undefined,
   idPrefix: string,
   createdAt: string,
+  placed?: Map<PersonId, PersonId>,
 ): void {
   if (!childSrc || !out[childSlotId]) return;
   const fOld = childSrc.fatherId;
   const mOld = childSrc.motherId;
-  if (fOld === skipFatherSlot || mOld === skipMotherSlot) return;
-  const fSrc = fOld && fOld !== skipFatherSlot ? sourcePeople[fOld] : undefined;
-  const mSrc = mOld && mOld !== skipMotherSlot ? sourcePeople[mOld] : undefined;
+  if ((fOld && fOld === skipFatherSrcId) || (mOld && mOld === skipMotherSrcId)) return;
+
+  const fSrc = fOld && fOld !== skipFatherSrcId ? sourcePeople[fOld] : undefined;
+  const mSrc = mOld && mOld !== skipMotherSrcId ? sourcePeople[mOld] : undefined;
   if (!fSrc && !mSrc) return;
 
-  const fId = `${idPrefix}_f` as PersonId;
-  const mId = `${idPrefix}_m` as PersonId;
-  placeIfSource(out, fId, fSrc, { spouseId: mSrc ? mId : undefined }, createdAt);
-  placeIfSource(out, mId, mSrc, { spouseId: fSrc ? fId : undefined }, createdAt);
+  const existingF = fOld ? placed?.get(fOld) : undefined;
+  const existingM = mOld ? placed?.get(mOld) : undefined;
+  if (
+    (!fSrc || (existingF && out[existingF])) &&
+    (!mSrc || (existingM && out[existingM]))
+  ) {
+    out[childSlotId] = {
+      ...out[childSlotId],
+      fatherId: fSrc && existingF ? existingF : out[childSlotId].fatherId,
+      motherId: mSrc && existingM ? existingM : out[childSlotId].motherId,
+    };
+    return;
+  }
+
+  const fId = (existingF && out[existingF] ? existingF : (`${idPrefix}_f` as PersonId));
+  const mId = (existingM && out[existingM] ? existingM : (`${idPrefix}_m` as PersonId));
+  const placedF = placeIfSource(
+    out,
+    fId,
+    fSrc,
+    { spouseId: mSrc ? mId : undefined },
+    createdAt,
+    placed,
+  );
+  const placedM = placeIfSource(
+    out,
+    mId,
+    mSrc,
+    { spouseId: fSrc ? fId : undefined },
+    createdAt,
+    placed,
+  );
   out[childSlotId] = {
     ...out[childSlotId],
-    fatherId: fSrc ? fId : out[childSlotId].fatherId,
-    motherId: mSrc ? mId : out[childSlotId].motherId,
+    fatherId: fSrc ? placedF ?? out[childSlotId].fatherId : out[childSlotId].fatherId,
+    motherId: mSrc ? placedM ?? out[childSlotId].motherId : out[childSlotId].motherId,
   };
+}
+
+/** 이미 둔 조상 위에 한 세대가 더 있으면 칸을 올려 붙인다. */
+function placeExtraGenerationAbove(
+  out: Record<PersonId, Person>,
+  sourcePeople: Record<PersonId, Person>,
+  childSrc: Person | undefined,
+  childSlotId: PersonId,
+  idPrefix: string,
+  createdAt: string,
+  placed?: Map<PersonId, PersonId>,
+): void {
+  if (!childSrc || !out[childSlotId]) return;
+  const alreadyF = out[childSlotId].fatherId;
+  const alreadyM = out[childSlotId].motherId;
+  const fSrc = childSrc.fatherId ? sourcePeople[childSrc.fatherId] : undefined;
+  const mSrc = childSrc.motherId ? sourcePeople[childSrc.motherId] : undefined;
+  const needF = !!fSrc && !(alreadyF && out[alreadyF]);
+  const needM = !!mSrc && !(alreadyM && out[alreadyM]);
+  if (!needF && !needM) return;
+
+  const fId = (alreadyF && out[alreadyF] ? alreadyF : (`${idPrefix}_f` as PersonId));
+  const mId = (alreadyM && out[alreadyM] ? alreadyM : (`${idPrefix}_m` as PersonId));
+  let placedF = alreadyF && out[alreadyF] ? alreadyF : undefined;
+  let placedM = alreadyM && out[alreadyM] ? alreadyM : undefined;
+  if (needF) {
+    placedF = placeIfSource(out, fId, fSrc, { spouseId: mSrc || alreadyM ? mId : undefined }, createdAt, placed);
+  }
+  if (needM) {
+    placedM = placeIfSource(out, mId, mSrc, { spouseId: fSrc || alreadyF ? fId : undefined }, createdAt, placed);
+  }
+  out[childSlotId] = {
+    ...out[childSlotId],
+    fatherId: fSrc ? placedF ?? fId : out[childSlotId].fatherId,
+    motherId: mSrc ? placedM ?? mId : out[childSlotId].motherId,
+  };
+}
+
+function isPlaceholderSpouse(person: Person): boolean {
+  if (isExportableRelative(person)) return false;
+  const name = person.name?.trim() ?? '';
+  if (!name || name === '배우자' || /^배우자\s/.test(name)) return true;
+  return /^(형수|제수|매형|매부|매제|형부|제부|큰어머니|고모부|숙모|이모부|오빠 부인)$/.test(
+    name,
+  );
+}
+
+function spouseHasExportableNatal(
+  people: Record<PersonId, Person>,
+  spouse: Person,
+): boolean {
+  if (!hasNatalParent(people, spouse)) return false;
+  const father = spouse.fatherId ? people[spouse.fatherId] : undefined;
+  const mother = spouse.motherId ? people[spouse.motherId] : undefined;
+  if ((father && isExportableRelative(father)) || (mother && isExportableRelative(mother))) {
+    return true;
+  }
+  return collectCoupleChildren(people, spouse.fatherId, spouse.motherId).some(
+    id => id !== spouse.id && isExportableRelative(people[id]),
+  );
 }
 
 function keepableSpouse(
   sourcePeople: Record<PersonId, Person>,
-  spouseId: PersonId | undefined,
+  person: Person,
 ): Person | undefined {
+  const spouseId = person.spouseId;
   if (!spouseId) return undefined;
   const spouse = sourcePeople[spouseId];
-  if (!spouse || isUnusedTemplatePerson(spouse)) return undefined;
-  return spouse;
+  if (!spouse) return undefined;
+  if (!isUnusedTemplatePerson(spouse) && !isPlaceholderSpouse(spouse)) return spouse;
+  if (spouseHasExportableNatal(sourcePeople, spouse)) return spouse;
+  const kids = collectCoupleChildren(sourcePeople, person.id, spouseId);
+  if (
+    kids.some(id => {
+      const kid = sourcePeople[id];
+      if (!kid) return false;
+      if (isExportableRelative(kid)) return true;
+      const name = kid.name?.trim() ?? '';
+      return /^(나의 아들|나의 딸)$/.test(name);
+    })
+  ) {
+    return spouse;
+  }
+  return undefined;
+}
+
+/** 실데이터 배우자 본가가 있을 때만 배우자 집안 보기를 만든다. */
+function shouldBuildSpouseView(
+  people: Record<PersonId, Person>,
+  focalId: PersonId,
+): boolean {
+  const focal = people[focalId];
+  const spouse = focal?.spouseId ? people[focal.spouseId] : undefined;
+  if (!spouse) return false;
+  if (isExportableRelative(spouse)) return true;
+  return spouseHasExportableNatal(people, spouse);
 }
 
 function placeDescendants(args: {
@@ -749,6 +943,7 @@ function placeDescendants(args: {
   childIdFor: (index: number) => PersonId;
   createdAt: string;
   depth: number;
+  placed: Map<PersonId, PersonId>;
 }): void {
   const {
     out,
@@ -761,6 +956,7 @@ function placeDescendants(args: {
     childIdFor,
     createdAt,
     depth,
+    placed,
   } = args;
   if (depth <= 0) return;
 
@@ -772,14 +968,15 @@ function placeDescendants(args: {
   childIds.forEach((oldChildId, ci) => {
     const childSrc = sourcePeople[oldChildId];
     if (!childSrc) return;
+    if (placed.has(oldChildId) && out[placed.get(oldChildId)!]) return;
     const newChildId = childIdFor(ci);
-    const childSpouseSrc = keepableSpouse(sourcePeople, childSrc.spouseId);
+    const childSpouseSrc = keepableSpouse(sourcePeople, childSrc);
     const newChildSpouseId = childSpouseSrc ? (`${newChildId}_sp` as PersonId) : undefined;
     const fatherIsBlood =
       childSrc.fatherId === oldBloodId ||
       (!childSrc.fatherId && sourcePeople[oldBloodId]?.gender !== 'female');
 
-    ensurePerson(
+    const placedChildId = ensurePerson(
       out,
       newChildId,
       childSrc,
@@ -789,9 +986,18 @@ function placeDescendants(args: {
         spouseId: newChildSpouseId,
       },
       createdAt,
+      placed,
     );
+    let placedSpouseId = newChildSpouseId;
     if (childSpouseSrc && newChildSpouseId) {
-      ensurePerson(out, newChildSpouseId, childSpouseSrc, { spouseId: newChildId }, createdAt);
+      placedSpouseId = ensurePerson(
+        out,
+        newChildSpouseId,
+        childSpouseSrc,
+        { spouseId: placedChildId },
+        createdAt,
+        placed,
+      );
     }
 
     placeDescendants({
@@ -800,11 +1006,12 @@ function placeDescendants(args: {
       focalId,
       oldBloodId: oldChildId,
       oldSpouseId: childSrc.spouseId,
-      newBloodId: newChildId,
-      newSpouseId: newChildSpouseId,
-      childIdFor: index => `${newChildId}_d${index}` as PersonId,
+      newBloodId: placedChildId,
+      newSpouseId: placedSpouseId,
+      childIdFor: index => `${placedChildId}_d${index}` as PersonId,
       createdAt,
       depth: depth - 1,
+      placed,
     });
   });
 }
@@ -831,6 +1038,7 @@ function placeParentSiblings(
   idPrefix: string,
   createdAt: string,
   focalId: PersonId,
+  placed: Map<PersonId, PersonId>,
 ): void {
   if (!parentSrc) return;
   const gpFatherOld = parentSrc.fatherId;
@@ -847,11 +1055,12 @@ function placeParentSiblings(
   sorted.forEach((oldBloodId, i) => {
     const bloodSrc = sourcePeople[oldBloodId];
     if (!bloodSrc) return;
+    if (placed.has(oldBloodId) && out[placed.get(oldBloodId)!]) return;
     const newBloodId = `${idPrefix}_${i}` as PersonId;
-    const spSrc = keepableSpouse(sourcePeople, bloodSrc.spouseId);
+    const spSrc = keepableSpouse(sourcePeople, bloodSrc);
     const newSpouseId = spSrc ? (`${newBloodId}_sp` as PersonId) : undefined;
 
-    ensurePerson(
+    const placedBloodId = ensurePerson(
       out,
       newBloodId,
       bloodSrc,
@@ -867,10 +1076,12 @@ function placeParentSiblings(
         spouseId: newSpouseId,
       },
       createdAt,
+      placed,
     );
 
+    let placedSpouseId = newSpouseId;
     if (spSrc && newSpouseId) {
-      ensurePerson(out, newSpouseId, spSrc, { spouseId: newBloodId }, createdAt);
+      placedSpouseId = ensurePerson(out, newSpouseId, spSrc, { spouseId: placedBloodId }, createdAt, placed);
     }
 
     placeDescendants({
@@ -879,13 +1090,47 @@ function placeParentSiblings(
       focalId,
       oldBloodId,
       oldSpouseId: bloodSrc.spouseId,
-      newBloodId,
-      newSpouseId,
-      childIdFor: ci => `${newBloodId}_c${ci}` as PersonId,
+      newBloodId: placedBloodId,
+      newSpouseId: placedSpouseId,
+      childIdFor: ci => `${placedBloodId}_c${ci}` as PersonId,
       createdAt,
       depth: DESCENDANT_DEPTH_COLLATERAL,
+      placed,
     });
   });
+}
+
+function collapseDuplicatePeople(people: Record<PersonId, Person>): Record<PersonId, Person> {
+  const keepByKey = new Map<string, PersonId>();
+  const remap = new Map<PersonId, PersonId>();
+  for (const person of Object.values(people)) {
+    const name = person.name?.trim();
+    if (!name) continue;
+    if (DEFAULT_SLOT_NAME.test(name) && !person.birthDate && !person.photoUri) continue;
+    const key = `${name}|${person.birthDate ?? ''}|${[person.fatherId, person.motherId]
+      .filter(Boolean)
+      .sort()
+      .join(',')}`;
+    const prev = keepByKey.get(key);
+    if (!prev) {
+      keepByKey.set(key, person.id);
+      continue;
+    }
+    remap.set(person.id, prev);
+  }
+  if (!remap.size) return people;
+
+  const out: Record<PersonId, Person> = {};
+  for (const [id, person] of Object.entries(people)) {
+    if (remap.has(id)) continue;
+    out[id] = {
+      ...person,
+      fatherId: person.fatherId ? remap.get(person.fatherId) ?? person.fatherId : undefined,
+      motherId: person.motherId ? remap.get(person.motherId) ?? person.motherId : undefined,
+      spouseId: person.spouseId ? remap.get(person.spouseId) ?? person.spouseId : undefined,
+    };
+  }
+  return out;
 }
 
 /**
@@ -924,14 +1169,15 @@ function buildBloodCenteredView(
   };
 
   const out: Record<PersonId, Person> = {};
+  const placed = new Map<PersonId, PersonId>();
 
   const fatherSrc = focal.fatherId ? sourcePeople[focal.fatherId] : undefined;
   const motherSrc = focal.motherId ? sourcePeople[focal.motherId] : undefined;
-  const spouseSrc =
-    options?.forceSpouseSource ??
-    (focal.spouseId && sourcePeople[focal.spouseId]
-      ? sourcePeople[focal.spouseId]
-      : undefined);
+  const forcedSpouse =
+    options?.forceSpouseSource && !isPlaceholderSpouse(options.forceSpouseSource)
+      ? options.forceSpouseSource
+      : undefined;
+  const spouseSrc = forcedSpouse ?? keepableSpouse(sourcePeople, focal);
 
   const gfSrc = fatherSrc?.fatherId ? sourcePeople[fatherSrc.fatherId] : undefined;
   const gmSrc = fatherSrc?.motherId ? sourcePeople[fatherSrc.motherId] : undefined;
@@ -942,121 +1188,114 @@ function buildBloodCenteredView(
   const mggfSrc = mgfSrc?.fatherId ? sourcePeople[mgfSrc.fatherId] : undefined;
   const mggmSrc = mgfSrc?.motherId ? sourcePeople[mgfSrc.motherId] : undefined;
 
-  placeIfSource(out, slots.ggf, ggfSrc, { spouseId: ggmSrc ? slots.ggm : undefined }, createdAt);
-  placeIfSource(out, slots.ggm, ggmSrc, { spouseId: ggfSrc ? slots.ggf : undefined }, createdAt);
-  placeIfSource(
-    out,
-    slots.mggf,
-    mggfSrc,
-    { spouseId: mggmSrc ? slots.mggm : undefined },
-    createdAt,
-  );
-  placeIfSource(
-    out,
-    slots.mggm,
-    mggmSrc,
-    { spouseId: mggfSrc ? slots.mggf : undefined },
-    createdAt,
-  );
+  const idOf = (src: Person | undefined, fallback?: PersonId): PersonId | undefined =>
+    src ? placed.get(src.id) ?? fallback : undefined;
+
+  placeIfSource(out, slots.ggf, ggfSrc, {}, createdAt, placed);
+  placeIfSource(out, slots.ggm, ggmSrc, {}, createdAt, placed);
+  placeIfSource(out, slots.mggf, mggfSrc, {}, createdAt, placed);
+  placeIfSource(out, slots.mggm, mggmSrc, {}, createdAt, placed);
 
   placeIfSource(
     out,
     slots.gf,
     gfSrc,
-    {
-      spouseId: gmSrc ? slots.gm : undefined,
-      fatherId: ggfSrc ? slots.ggf : undefined,
-      motherId: ggmSrc ? slots.ggm : undefined,
-    },
+    { fatherId: idOf(ggfSrc), motherId: idOf(ggmSrc) },
     createdAt,
+    placed,
   );
-  placeIfSource(out, slots.gm, gmSrc, { spouseId: gfSrc ? slots.gf : undefined }, createdAt);
-  placeNatalParentsOf(
-    out,
-    sourcePeople,
-    gmSrc,
-    slots.gm,
-    slots.ggf,
-    slots.ggm,
-    `${prefix}_gm`,
-    createdAt,
-  );
+  placeIfSource(out, slots.gm, gmSrc, {}, createdAt, placed);
   placeIfSource(
     out,
     slots.mgf,
     mgfSrc,
-    {
-      spouseId: mgmSrc ? slots.mgm : undefined,
-      fatherId: mggfSrc ? slots.mggf : undefined,
-      motherId: mggmSrc ? slots.mggm : undefined,
-    },
+    { fatherId: idOf(mggfSrc), motherId: idOf(mggmSrc) },
     createdAt,
+    placed,
   );
-  placeIfSource(out, slots.mgm, mgmSrc, { spouseId: mgfSrc ? slots.mgf : undefined }, createdAt);
+  placeIfSource(out, slots.mgm, mgmSrc, {}, createdAt, placed);
+
+  const couple = (a?: Person, b?: Person) => {
+    const aid = idOf(a);
+    const bid = idOf(b);
+    if (!aid || !bid || !out[aid] || !out[bid]) return;
+    out[aid] = { ...out[aid], spouseId: bid };
+    out[bid] = { ...out[bid], spouseId: aid };
+  };
+  couple(ggfSrc, ggmSrc);
+  couple(mggfSrc, mggmSrc);
+  couple(gfSrc, gmSrc);
+  couple(mgfSrc, mgmSrc);
+
+  placeNatalParentsOf(
+    out,
+    sourcePeople,
+    gmSrc,
+    idOf(gmSrc, slots.gm) ?? slots.gm,
+    gfSrc?.fatherId,
+    gfSrc?.motherId,
+    `${prefix}_gm`,
+    createdAt,
+    placed,
+  );
   placeNatalParentsOf(
     out,
     sourcePeople,
     mgmSrc,
-    slots.mgm,
-    slots.mggf,
-    slots.mggm,
+    idOf(mgmSrc, slots.mgm) ?? slots.mgm,
+    mgfSrc?.fatherId,
+    mgfSrc?.motherId,
     `${prefix}_mgm`,
     createdAt,
+    placed,
   );
+
+  placeExtraGenerationAbove(out, sourcePeople, ggfSrc, idOf(ggfSrc, slots.ggf) ?? slots.ggf, `${prefix}_ggf`, createdAt, placed);
+  placeExtraGenerationAbove(out, sourcePeople, ggmSrc, idOf(ggmSrc, slots.ggm) ?? slots.ggm, `${prefix}_ggm`, createdAt, placed);
+  placeExtraGenerationAbove(out, sourcePeople, mggfSrc, idOf(mggfSrc, slots.mggf) ?? slots.mggf, `${prefix}_mggf`, createdAt, placed);
+  placeExtraGenerationAbove(out, sourcePeople, mggmSrc, idOf(mggmSrc, slots.mggm) ?? slots.mggm, `${prefix}_mggm`, createdAt, placed);
 
   placeIfSource(
     out,
     slots.father,
     fatherSrc,
     {
-      spouseId: motherSrc ? slots.mother : undefined,
-      fatherId: gfSrc ? slots.gf : undefined,
-      motherId: gmSrc ? slots.gm : undefined,
+      fatherId: idOf(gfSrc),
+      motherId: idOf(gmSrc),
     },
     createdAt,
+    placed,
   );
   placeIfSource(
     out,
     slots.mother,
     motherSrc,
     {
-      spouseId: fatherSrc ? slots.father : undefined,
-      fatherId: mgfSrc ? slots.mgf : undefined,
-      motherId: mgmSrc ? slots.mgm : undefined,
+      fatherId: idOf(mgfSrc),
+      motherId: idOf(mgmSrc),
     },
     createdAt,
+    placed,
   );
+  couple(fatherSrc, motherSrc);
 
   const collateral = (
     parent: Person | undefined,
     links: { fatherId?: PersonId; motherId?: PersonId },
     prefixKey: string,
   ) =>
-    placeParentSiblings(out, sourcePeople, parent, links, prefixKey, createdAt, keepFocalId);
+    placeParentSiblings(out, sourcePeople, parent, links, prefixKey, createdAt, keepFocalId, placed);
 
   collateral(
     fatherSrc,
-    { fatherId: gfSrc ? slots.gf : undefined, motherId: gmSrc ? slots.gm : undefined },
+    { fatherId: idOf(gfSrc), motherId: idOf(gmSrc) },
     `${prefix}_psib`,
   );
   collateral(
     motherSrc,
-    { fatherId: mgfSrc ? slots.mgf : undefined, motherId: mgmSrc ? slots.mgm : undefined },
+    { fatherId: idOf(mgfSrc), motherId: idOf(mgmSrc) },
     `${prefix}_msib`,
   );
-  collateral(
-    gfSrc,
-    { fatherId: ggfSrc ? slots.ggf : undefined, motherId: ggmSrc ? slots.ggm : undefined },
-    `${prefix}_gsib`,
-  );
-  // 조모·외조모의 출생 가계는 증조 슬롯과 다를 수 있어 부모 링크는 소스 기준으로만 붙인다.
-  collateral(gmSrc, {}, `${prefix}_gmsib`);
-  collateral(
-    mgfSrc,
-    { fatherId: mggfSrc ? slots.mggf : undefined, motherId: mggmSrc ? slots.mggm : undefined },
-    `${prefix}_mgsib`,
-  );
-  collateral(mgmSrc, {}, `${prefix}_mgmsib`);
 
   let siblingPool =
     fatherSrc && motherSrc
@@ -1090,23 +1329,25 @@ function buildBloodCenteredView(
     const isFocalBlood = oldBloodId === bloodFocalId;
     const spSrc = isFocalBlood
       ? spouseSrc
-      : keepableSpouse(sourcePeople, bloodSrc.spouseId);
+      : keepableSpouse(sourcePeople, bloodSrc);
     const newSpouseId = spSrc ? siblingSpouseId(newBloodId) : undefined;
 
-    ensurePerson(
+    const placedBloodId = ensurePerson(
       out,
       newBloodId,
       bloodSrc,
       {
-        fatherId: fatherSrc ? slots.father : undefined,
-        motherId: motherSrc ? slots.mother : undefined,
+        fatherId: idOf(fatherSrc),
+        motherId: idOf(motherSrc),
         spouseId: newSpouseId,
       },
       createdAt,
+      placed,
     );
 
+    let placedSpouseId = newSpouseId;
     if (spSrc && newSpouseId) {
-      ensurePerson(out, newSpouseId, spSrc, { spouseId: newBloodId }, createdAt);
+      placedSpouseId = ensurePerson(out, newSpouseId, spSrc, { spouseId: placedBloodId }, createdAt, placed);
     }
 
     placeDescendants({
@@ -1115,11 +1356,12 @@ function buildBloodCenteredView(
       focalId: keepFocalId,
       oldBloodId,
       oldSpouseId: bloodSrc.spouseId,
-      newBloodId,
-      newSpouseId,
+      newBloodId: placedBloodId,
+      newSpouseId: placedSpouseId,
       childIdFor: ci => childIdForParentSlot(prefix, slotIndex, ci),
       createdAt,
       depth: DESCENDANT_DEPTH_SELF,
+      placed,
     });
   }
 
@@ -1131,7 +1373,7 @@ function buildBloodCenteredView(
     });
   }
 
-  return out;
+  return collapseDuplicatePeople(out);
 }
 
 /**
@@ -1245,8 +1487,8 @@ function buildLineageViewsAround(
         : {},
     spouse:
       alreadyBuiltSpouse ??
-      (spouseId && sourcePeople[spouseId]
-        ? buildBloodCenteredView(sourcePeople, spouseId, 'spo', sourceView, createdAt, {
+      (shouldBuildSpouseView(sourcePeople, personId)
+        ? buildBloodCenteredView(sourcePeople, spouseId!, 'spo', sourceView, createdAt, {
             ...keep,
             forceSpouseSource: person,
           })
@@ -1256,7 +1498,9 @@ function buildLineageViewsAround(
 
 function shouldReplaceWithKinshipName(person: Person): boolean {
   const name = person.name?.trim() ?? '';
-  return !name || name === '친족';
+  if (!name || name === '친족') return true;
+  if (name === '배우자' || /^배우자\s/.test(name)) return true;
+  return false;
 }
 
 function applyKinshipTitlesToView(
@@ -1266,6 +1510,34 @@ function applyKinshipTitlesToView(
 ): Record<PersonId, Person> {
   if (!Object.keys(people).length) return people;
   const labels = buildViewKinshipLabels(view, people, selfPeople);
+  if ((view === 'paternal' || view === 'maternal') && selfPeople) {
+    const slots = slotIdsForView(view);
+    const selfMe = selfPeople[slotIdsForView('self').selfId];
+    const matched = selfMe
+      ? Object.values(people).find(
+          p =>
+            p.name === selfMe.name && (p.birthDate ?? '') === (selfMe.birthDate ?? ''),
+        )?.id
+      : undefined;
+    const userId = resolveUserBloodIdInView(view, selfPeople, people) ?? matched;
+    if (userId && people[userId]) {
+      const fromUser = buildKinshipLabels(people, userId);
+      for (const id of [
+        slots.father,
+        slots.mother,
+        slots.gf,
+        slots.gm,
+        slots.mgf,
+        slots.mgm,
+        slots.ggf,
+        slots.ggm,
+        slots.mggf,
+        slots.mggm,
+      ]) {
+        if (fromUser[id]) labels[id] = fromUser[id];
+      }
+    }
+  }
   const out = { ...people };
   for (const [id, person] of Object.entries(people)) {
     if (!shouldReplaceWithKinshipName(person)) continue;

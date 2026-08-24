@@ -44,7 +44,7 @@ export function relativeOrderHint(person: Person): number {
   if (/^(누나|언니)$/.test(n)) return 2;
   if (/^고모/.test(n)) return 3;
   if (/^(나|본인|아버지|어머니)$/.test(n)) return 4;
-  if (/^(삼촌|숙모|남동생)$/.test(n)) return 5;
+  if (/^(삼촌|숙모|남동생|외삼촌)$/.test(n)) return 5;
   if (/^(여동생|이모)/.test(n)) return 6;
   if (/_sib1\b/.test(id) || /_extra_L/i.test(id)) return 0;
   if (/_sib0\b/.test(id)) return 1;

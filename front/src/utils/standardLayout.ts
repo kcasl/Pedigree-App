@@ -426,6 +426,7 @@ function placeGrandparentSideFromPlan(
   people: Record<PersonId, Person>,
   yGrand: number,
   yGreat: number,
+  yGGreat: number,
   yParent: number,
   opts: StandardLayoutOptions,
 ): { sideBranches: SideBranch[]; memberIds: PersonId[] } {
@@ -535,6 +536,24 @@ function placeGrandparentSideFromPlan(
     placeCoupleNode(nodes, nodeById, g.blood, spouse, g.x, yGreat, -3, opts);
     add(g.blood);
     add(spouse);
+    const upper = parentCoupleIds(people, people[g.blood]);
+    if (!upper) continue;
+    const uw = unitW(opts);
+    const greatW = spouse ? uw : opts.cardWidth;
+    const greatCenter = g.x + greatW / 2;
+    const upperW = natalCoupleWidth(upper, people, opts);
+    placeCoupleNode(
+      nodes,
+      nodeById,
+      upper.blood,
+      upper.spouse && people[upper.spouse] ? upper.spouse : undefined,
+      greatCenter - upperW / 2,
+      yGGreat,
+      -4,
+      opts,
+    );
+    add(upper.blood);
+    add(upper.spouse);
   }
 
   return { sideBranches, memberIds };
@@ -1404,6 +1423,21 @@ export function buildStandardPedigreeLayout(
   while (siblingWidths.length < coupleCount) siblingWidths.push(uw);
 
   const greatCouples = collectGrandparentParentCouples(people, slots);
+  const ggreatCouples: Array<{ blood: PersonId; spouse?: PersonId }> = [];
+  const seenGGreat = new Set<string>();
+  for (const g of greatCouples) {
+    for (const id of [g.blood, g.spouse]) {
+      if (!id || !people[id]) continue;
+      const upper = parentCoupleIds(people, people[id]);
+      if (!upper) continue;
+      const key = natalCoupleKey(upper);
+      if (seenGGreat.has(key)) continue;
+      seenGGreat.add(key);
+      ggreatCouples.push(upper);
+    }
+  }
+  const hasGreat = greatCouples.length > 0;
+  const hasGGreat = ggreatCouples.length > 0;
   const greatGap = Math.max(opts.coupleGap, 56);
   const greatRowW =
     greatCouples.length === 0
@@ -1466,12 +1500,12 @@ export function buildStandardPedigreeLayout(
   const ancestorSideBranches: SideBranch[] = [];
   const placedSideDescendantIds = new Set<PersonId>();
 
-  const hasGreat = greatCouples.length > 0;
-  const ancestorRows = hasGreat ? 3 : 2;
+  const ancestorRows = 2 + (hasGreat ? 1 : 0) + (hasGGreat ? 1 : 0);
   const ySibling = opts.padding + opts.rowGap * ancestorRows;
   const yParent = ySibling - opts.rowGap;
   const yGrand = yParent - opts.rowGap;
   const yGreat = yGrand - opts.rowGap;
+  const yGGreat = yGreat - opts.rowGap;
   const yChild = ySibling + opts.rowGap;
 
   const parentHasMother = !!people[slots.mother];
@@ -1609,6 +1643,7 @@ export function buildStandardPedigreeLayout(
     people,
     yGrand,
     yGreat,
+    yGGreat,
     yParent,
     opts,
   );
@@ -1619,6 +1654,7 @@ export function buildStandardPedigreeLayout(
     people,
     yGrand,
     yGreat,
+    yGGreat,
     yParent,
     opts,
   );

@@ -12,16 +12,27 @@ import type { Person } from '../types/pedigree';
 import { ui } from '../theme/ui';
 import { useScaledModalStyles } from '../theme/responsive';
 import { formatKoreanDate } from '../utils/date';
+import { formatPhoneDisplay } from '../utils/phone';
+import { useI18n } from '../i18n';
 
 type Props = {
   visible: boolean;
   person?: Person;
+  kinshipLabel?: string;
   onClose: () => void;
-  onEdit: () => void;
+  onEdit?: () => void;
   onDelete?: () => void;
 };
 
-export function PersonDetailModal({ visible, person, onClose, onEdit, onDelete }: Props) {
+export function PersonDetailModal({
+  visible,
+  person,
+  kinshipLabel,
+  onClose,
+  onEdit,
+  onDelete,
+}: Props) {
+  const { t, displayKinship } = useI18n();
   const scaled = useScaledModalStyles();
 
   return (
@@ -34,9 +45,9 @@ export function PersonDetailModal({ visible, person, onClose, onEdit, onDelete }
       <Pressable style={[styles.backdrop, scaled.backdropPad]} onPress={onClose}>
         <Pressable style={[styles.card, scaled.card]} onPress={() => {}}>
           <View style={[styles.header, scaled.header, scaled.headerCompact]}>
-            <Text style={[styles.title, scaled.title]}>상세 정보</Text>
+            <Text style={[styles.title, scaled.title]}>{t('person.detailTitle')}</Text>
             <Pressable onPress={onClose} style={[styles.closeBtn, scaled.closeBtn]}>
-              <Text style={[styles.closeText, scaled.closeText]}>닫기</Text>
+              <Text style={[styles.closeText, scaled.closeText]}>{t('common.close')}</Text>
             </Pressable>
           </View>
 
@@ -52,50 +63,61 @@ export function PersonDetailModal({ visible, person, onClose, onEdit, onDelete }
                 </View>
               )}
               <View style={[styles.topText, scaled.topText]}>
-                <Text style={[styles.name, scaled.name]}>{person?.name ?? ''}</Text>
+                <Text style={[styles.name, scaled.name]}>
+                  {displayKinship(person?.name) || t('common.unnamed')}
+                </Text>
+                {kinshipLabel ? (
+                  <Text style={[styles.label, scaled.label]}>{kinshipLabel}</Text>
+                ) : null}
               </View>
             </View>
 
             <View style={[styles.section, scaled.section]}>
-              <Text style={[styles.label, scaled.label]}>등록일</Text>
+              <Text style={[styles.label, scaled.label]}>{t('person.registered')}</Text>
               <Text style={[styles.value, scaled.value]}>
-                {formatKoreanDate(person?.createdAt) || '-'}
+                {formatKoreanDate(person?.createdAt) || t('person.dash')}
               </Text>
             </View>
             <View style={[styles.section, scaled.section]}>
-              <Text style={[styles.label, scaled.label]}>연락처</Text>
-              <Text style={[styles.value, scaled.value]}>{person?.phone ?? '-'}</Text>
+              <Text style={[styles.label, scaled.label]}>{t('person.phone')}</Text>
+              <Text style={[styles.value, scaled.value]}>
+                {person?.phone ? formatPhoneDisplay(person.phone) : t('person.dash')}
+              </Text>
             </View>
             <View style={[styles.section, scaled.section]}>
-              <Text style={[styles.label, scaled.label]}>생년월일</Text>
-              <Text style={[styles.value, scaled.value]}>{person?.birthDate ?? '-'}</Text>
+              <Text style={[styles.label, scaled.label]}>{t('person.birthDate')}</Text>
+              <Text style={[styles.value, scaled.value]}>{person?.birthDate ?? t('person.dash')}</Text>
             </View>
             <View style={[styles.section, scaled.section]}>
-              <Text style={[styles.label, scaled.label]}>성별</Text>
+              <Text style={[styles.label, scaled.label]}>{t('person.gender')}</Text>
               <Text style={[styles.value, scaled.value]}>
                 {person?.gender === 'male'
-                  ? '남성'
+                  ? t('person.male')
                   : person?.gender === 'female'
-                    ? '여성'
-                    : '-'}
+                    ? t('person.female')
+                    : t('person.dash')}
               </Text>
             </View>
             <View style={[styles.section, scaled.section]}>
-              <Text style={[styles.label, scaled.label]}>비고</Text>
-              <Text style={[styles.value, scaled.value]}>{person?.note ?? '-'}</Text>
+              <Text style={[styles.label, scaled.label]}>{t('person.note')}</Text>
+              <Text style={[styles.value, scaled.value]}>{person?.note ?? t('person.dash')}</Text>
             </View>
           </ScrollView>
 
-          <View style={[styles.footer, scaled.footer, scaled.footerRow]}>
-            <Pressable style={[styles.primaryBtn, scaled.primaryBtn]} onPress={onEdit}>
-              <Text style={[styles.primaryText, scaled.primaryText]}>수정</Text>
-            </Pressable>
-            {onDelete ? (
-              <Pressable style={[styles.dangerBtn, scaled.dangerBtn]} onPress={onDelete}>
-                <Text style={[styles.dangerText, scaled.dangerText]}>삭제</Text>
-              </Pressable>
-            ) : null}
-          </View>
+          {onEdit || onDelete ? (
+            <View style={[styles.footer, scaled.footer, scaled.footerRow]}>
+              {onEdit ? (
+                <Pressable style={[styles.primaryBtn, scaled.primaryBtn]} onPress={onEdit}>
+                  <Text style={[styles.primaryText, scaled.primaryText]}>{t('person.edit')}</Text>
+                </Pressable>
+              ) : null}
+              {onDelete ? (
+                <Pressable style={[styles.dangerBtn, scaled.dangerBtn]} onPress={onDelete}>
+                  <Text style={[styles.dangerText, scaled.dangerText]}>{t('common.delete')}</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          ) : null}
         </Pressable>
       </Pressable>
     </Modal>
