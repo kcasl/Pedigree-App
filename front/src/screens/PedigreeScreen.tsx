@@ -107,6 +107,10 @@ function createInitialStore(): PedigreeStore {
   return createDefaultStore(nowIso());
 }
 
+function openedOnSelfView(store: PedigreeStore): PedigreeStore {
+  return store.activeView === 'self' ? store : { ...store, activeView: 'self' };
+}
+
 function inferParentRole(
   next: Record<PersonId, Person>,
   parentId: PersonId,
@@ -271,14 +275,14 @@ export function PedigreeScreen({
     );
   };
 
-  const switchLineageView = (view: ActiveView) => {
+  const switchLineageView = useCallback((view: ActiveView) => {
     const nextSlots = slotIdsForView(view);
     setStore(prev => syncAllViews({ ...prev, activeView: view }));
     setSelectedId(nextSlots.selfId);
     setActionVisible(false);
-  };
+  }, []);
 
-  const switchToSelfView = () => switchLineageView('self');
+  const switchToSelfView = useCallback(() => switchLineageView('self'), [switchLineageView]);
 
   const [selectedId, setSelectedId] = useState<PersonId>('me_sib2');
   const selected = peopleById[selectedId];
@@ -366,14 +370,14 @@ export function PedigreeScreen({
       try {
         const localStore = await loadPedigreeStore();
         if (mounted && localStore) {
-          const synced = syncAllViews(localStore);
+          const synced = openedOnSelfView(syncAllViews(localStore));
           setStore(synced);
-          lastSyncedPeopleRef.current = synced.views[synced.activeView];
-          setSelectedId(slotIdsForView(synced.activeView).selfId);
+          lastSyncedPeopleRef.current = synced.views.self;
+          setSelectedId(slotIdsForView('self').selfId);
         } else if (mounted) {
-          const initial = syncAllViews(createInitialStore());
+          const initial = openedOnSelfView(syncAllViews(createInitialStore()));
           setStore(initial);
-          lastSyncedPeopleRef.current = initial.views[initial.activeView];
+          lastSyncedPeopleRef.current = initial.views.self;
         }
 
         if (ENABLE_SERVER_SYNC) {
@@ -394,10 +398,10 @@ export function PedigreeScreen({
         if (mounted) {
           const retry = await loadPedigreeStore().catch(() => null);
           if (retry) {
-            const synced = syncAllViews(retry);
+            const synced = openedOnSelfView(syncAllViews(retry));
             setStore(synced);
-            lastSyncedPeopleRef.current = synced.views[synced.activeView];
-            setSelectedId(slotIdsForView(synced.activeView).selfId);
+            lastSyncedPeopleRef.current = synced.views.self;
+            setSelectedId(slotIdsForView('self').selfId);
           }
         }
       }
@@ -420,21 +424,23 @@ export function PedigreeScreen({
               const remoteStore = syncAllViews(
                 reconcileStore(migrateLegacyToStore(remotePeople)),
               );
-              const merged = localStore
-                ? syncAllViews(
-                    reconcileStore(
-                      mergePedigreeStoresPreferLocalUserData(localStore, remoteStore),
-                    ),
-                  )
-                : remoteStore;
+              const merged = openedOnSelfView(
+                localStore
+                  ? syncAllViews(
+                      reconcileStore(
+                        mergePedigreeStoresPreferLocalUserData(localStore, remoteStore),
+                      ),
+                    )
+                  : remoteStore,
+              );
               setStore(merged);
-              lastSyncedPeopleRef.current = merged.views[merged.activeView];
+              lastSyncedPeopleRef.current = merged.views.self;
+              setSelectedId(slotIdsForView('self').selfId);
               await savePedigreeStore(merged);
             } else if (mounted && !localStore) {
-              const initial = syncAllViews(createInitialStore());
+              const initial = openedOnSelfView(syncAllViews(createInitialStore()));
               setStore(initial);
-              lastSyncedPeopleRef.current = initial.views[initial.activeView];
-              lastSyncedPeopleRef.current = initial.views.paternal;
+              lastSyncedPeopleRef.current = initial.views.self;
             }
             if (mounted) setSyncStatus('synced');
           } else if (mounted) {
@@ -722,6 +728,10 @@ export function PedigreeScreen({
         setExportedKey(null);
         return true;
       }
+      if (activeView !== 'self') {
+        switchToSelfView();
+        return true;
+      }
       if (onBack) {
         onBack();
         return true;
@@ -741,7 +751,9 @@ export function PedigreeScreen({
     importVisible,
     importBusy,
     exportedKey,
+    activeView,
     onBack,
+    switchToSelfView,
   ]);
 
   useEffect(() => {
@@ -1202,8 +1214,19 @@ export function PedigreeScreen({
           </View>
           <View style={[styles.headerActions, scaledUi.headerActions]}>
             {onBack ? (
-              <Pressable style={[styles.settingsBtn, scaledUi.settingsBtn]} onPress={onBack}>
-                <Text style={[styles.settingsBtnText, scaledUi.settingsBtnText]}>{t('common.home')}</Text>
+              <Pressable
+                style={[styles.settingsBtn, scaledUi.settingsBtn]}
+                onPress={() => {
+                  if (activeView !== 'self') {
+                    switchToSelfView();
+                    return;
+                  }
+                  onBack();
+                }}
+              >
+                <Text style={[styles.settingsBtnText, scaledUi.settingsBtnText]}>
+                  {activeView === 'self' ? t('common.home') : t('common.back')}
+                </Text>
               </Pressable>
             ) : null}
             {ENABLE_PEDIGREE_SHARE ? (

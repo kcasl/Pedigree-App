@@ -1,4 +1,4 @@
-import { buildSiblingKinshipLabels, siblingBloodLabel, siblingSpouseLabel } from './siblingKinship';
+import { buildSiblingKinshipLabels, siblingBloodLabel, siblingSpouseLabel, spouseSideSiblingLabel } from './siblingKinship';
 import type { Person } from '../types/pedigree';
 
 function person(
@@ -89,5 +89,31 @@ describe('buildSiblingKinshipLabels', () => {
     const labels = buildSiblingKinshipLabels(people, selfId, ['me_sib1', selfId, 'me_sib3']);
     expect(labels.me_sib1).toBe('누나');
     expect(labels.me_sib3).toBe('여동생');
+  });
+});
+
+describe('spouseSideSiblingLabel', () => {
+  it('uses 처가 terms for male self', () => {
+    expect(spouseSideSiblingLabel('male', person('os', 'female', '1990-01-01'), 'older')).toBe(
+      '처형',
+    );
+    expect(spouseSideSiblingLabel('male', person('ys', 'female', '2000-01-01'), 'younger')).toBe(
+      '처제',
+    );
+    expect(spouseSideSiblingLabel('male', person('ob', 'male', '1990-01-01'), 'older')).toBe(
+      '처남',
+    );
+  });
+
+  it('uses 시가 terms for female self', () => {
+    expect(spouseSideSiblingLabel('female', person('os', 'female', '1990-01-01'), 'older')).toBe(
+      '시누이',
+    );
+    expect(spouseSideSiblingLabel('female', person('ob', 'male', '1990-01-01'), 'older')).toBe(
+      '시아주버니',
+    );
+    expect(spouseSideSiblingLabel('female', person('yb', 'male', '2000-01-01'), 'younger')).toBe(
+      '시동생',
+    );
   });
 });

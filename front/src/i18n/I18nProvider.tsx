@@ -14,8 +14,12 @@ import {
 import { DEFAULT_LOCALE, type Locale } from './types';
 
 type I18nValue = {
+  ready: boolean;
+  needsLocalePick: boolean;
   locale: Locale;
   setLocale: (next: Locale) => Promise<void>;
+  previewLocale: (next: Locale) => void;
+  confirmLocale: (next: Locale) => Promise<void>;
   t: (key: MessageKey, vars?: MessageVars) => string;
   displayKinship: (text: string | undefined) => string;
   displayOrdinal: (label: string | undefined) => string;
@@ -24,10 +28,17 @@ type I18nValue = {
   formatDaysUntilLabel: (daysUntil: number) => string;
 };
 
+const defaultT = (key: MessageKey, vars?: MessageVars) =>
+  translateMessage(key, vars, DEFAULT_LOCALE);
+
 const I18nContext = createContext<I18nValue>({
+  ready: false,
+  needsLocalePick: false,
   locale: DEFAULT_LOCALE,
   setLocale: async () => {},
-  t: (key, vars) => translateMessage(key, vars, DEFAULT_LOCALE),
+  previewLocale: () => {},
+  confirmLocale: async () => {},
+  t: defaultT,
   displayKinship: text => displayKinship(text, DEFAULT_LOCALE),
   displayOrdinal: label => displayOrdinal(label, DEFAULT_LOCALE),
   displayViewLabels: joined => displayViewLabels(joined, DEFAULT_LOCALE),
@@ -37,30 +48,61 @@ const I18nContext = createContext<I18nValue>({
 
 export function I18nProvider({ children }: { children: React.ReactNode }) {
   const [locale, setLocaleState] = useState<Locale>(DEFAULT_LOCALE);
+  const [ready, setReady] = useState(false);
+  const [needsLocalePick, setNeedsLocalePick] = useState(false);
 
   useEffect(() => {
     let mounted = true;
-    void loadAppPrefs().then(prefs => {
-      if (!mounted) return;
-      setActiveLocale(prefs.locale);
-      setLocaleState(prefs.locale);
-    });
+    void loadAppPrefs()
+      .then(prefs => {
+        if (!mounted) return;
+        setActiveLocale(prefs.locale);
+        setLocaleState(prefs.locale);
+        setNeedsLocalePick(!prefs.localeChosen);
+      })
+      .finally(() => {
+        if (mounted) setReady(true);
+      });
     return () => {
       mounted = false;
     };
   }, []);
 
-  const setLocale = useCallback(async (next: Locale) => {
+  const persistLocale = useCallback(async (next: Locale, chosen: boolean) => {
     setActiveLocale(next);
     setLocaleState(next);
     const prefs = await loadAppPrefs();
-    await saveAppPrefs({ ...prefs, locale: next });
+    await saveAppPrefs({ ...prefs, locale: next, localeChosen: chosen || prefs.localeChosen });
   }, []);
+
+  const setLocale = useCallback(
+    async (next: Locale) => {
+      await persistLocale(next, true);
+    },
+    [persistLocale],
+  );
+
+  const previewLocale = useCallback((next: Locale) => {
+    setActiveLocale(next);
+    setLocaleState(next);
+  }, []);
+
+  const confirmLocale = useCallback(
+    async (next: Locale) => {
+      await persistLocale(next, true);
+      setNeedsLocalePick(false);
+    },
+    [persistLocale],
+  );
 
   const value = useMemo<I18nValue>(
     () => ({
+      ready,
+      needsLocalePick,
       locale,
       setLocale,
+      previewLocale,
+      confirmLocale,
       t: (key, vars) => translateMessage(key, vars, locale),
       displayKinship: text => displayKinship(text, locale),
       displayOrdinal: label => displayOrdinal(label, locale),
@@ -68,7 +110,7 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
       formatBirthLabel: (month, day) => formatBirthLabel(month, day, locale),
       formatDaysUntilLabel: days => formatDaysUntilLabel(days, locale),
     }),
-    [locale, setLocale],
+    [ready, needsLocalePick, locale, setLocale, previewLocale, confirmLocale],
   );
 
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;

@@ -7,7 +7,8 @@
  *  4세대 자녀      각 부부 아래 자녀
  *  5세대 손자      (self 뷰 기본 템플릿)
  *
- * 친가·외가·배우자 집안은 같은 슬롯 구조, 인물 데이터만 독립.
+ * 친가·외가·배우자 집안은 같은 슬롯 구조(가운데는 아버지/어머니/배우자).
+ * 족보명·호칭은 모든 보기에서 나(사용자) 시점.
  */
 
 import type { ActiveView } from '../types/lineage';
@@ -84,7 +85,7 @@ export function slotIdsForView(view: ActiveView): TemplateSlotIds {
   };
 }
 
-/** 현재 시점에서 가운데(본인) 슬롯 — 뷰마다 다른 인물(나/아버지/어머니/배우자) */
+/** 레이아웃 가운데 혈족 슬롯(나/아버지/어머니/배우자). 호칭의 「나」와는 별개. */
 export function focalBloodId(_view: ActiveView, slots: TemplateSlotIds): PersonId {
   return slots.selfId;
 }
@@ -146,7 +147,7 @@ const PATERNAL_NAMES: DefaultNames = {
   children: [
     ['', ''],
     ['큰아버지의 아들', '큰아버지의 딸'],
-    ['나의 아들', '나의 딸'],
+    ['', ''],
     ['고모의 아들', '고모의 딸'],
     ['', ''],
   ],
@@ -157,21 +158,21 @@ const MATERNAL_NAMES: DefaultNames = {
   ggm: '증조할머니',
   gf: '증조할아버지',
   gm: '증조할머니',
-  mgf: '외할아버지',
-  mgm: '외할머니',
+  mgf: '증조할아버지',
+  mgm: '증조할머니',
   father: '외할아버지',
   mother: '외할머니',
   siblings: [
     { blood: '', spouse: '', bloodGender: 'unknown', spouseGender: 'unknown' },
-    { blood: '삼촌', spouse: '숙모', bloodGender: 'male', spouseGender: 'female' },
+    { blood: '외삼촌', spouse: '외숙모', bloodGender: 'male', spouseGender: 'female' },
     { blood: '어머니', spouse: '아버지', bloodGender: 'female', spouseGender: 'male' },
     { blood: '이모', spouse: '이모부', bloodGender: 'female', spouseGender: 'male' },
     { blood: '', spouse: '', bloodGender: 'unknown', spouseGender: 'unknown' },
   ],
   children: [
     ['', ''],
-    ['삼촌의 아들', '삼촌의 딸'],
-    ['나의 아들', '나의 딸'],
+    ['외삼촌의 아들', '외삼촌의 딸'],
+    ['', ''],
     ['이모의 아들', '이모의 딸'],
     ['', ''],
   ],
@@ -187,18 +188,18 @@ const SPOUSE_NAMES: DefaultNames = {
   father: '배우자 아버지',
   mother: '배우자 어머니',
   siblings: [
-    { blood: '배우자 형', spouse: '형수', bloodGender: 'male', spouseGender: 'female' },
-    { blood: '배우자 오빠', spouse: '오빠 부인', bloodGender: 'male', spouseGender: 'female' },
+    { blood: '배우자 형', spouse: '동서', bloodGender: 'male', spouseGender: 'female' },
+    { blood: '배우자 오빠', spouse: '동서', bloodGender: 'male', spouseGender: 'female' },
     { blood: '배우자', spouse: '나', bloodGender: 'unknown', spouseGender: 'unknown' },
-    { blood: '배우자 누나', spouse: '매형', bloodGender: 'female', spouseGender: 'male' },
-    { blood: '배우자 남동생', spouse: '제수', bloodGender: 'male', spouseGender: 'female' },
+    { blood: '배우자 누나', spouse: '동서', bloodGender: 'female', spouseGender: 'male' },
+    { blood: '배우자 남동생', spouse: '동서', bloodGender: 'male', spouseGender: 'female' },
   ],
   children: [
-    ['형의 아들', '형의 딸'],
-    ['오빠의 아들', '오빠의 딸'],
+    ['배우자 형의 아들', '배우자 형의 딸'],
+    ['배우자 오빠의 아들', '배우자 오빠의 딸'],
     ['나의 아들', '나의 딸'],
-    ['누나의 아들', '누나의 딸'],
-    ['남동생의 아들', '남동생의 딸'],
+    ['배우자 누나의 아들', '배우자 누나의 딸'],
+    ['배우자 남동생의 아들', '배우자 남동생의 딸'],
   ],
 };
 
@@ -256,8 +257,8 @@ export function resolveNodeDisplayName(
   personId: PersonId,
   name: string,
 ): string {
-  if (view === 'paternal') {
-    const slots = slotIdsForView('paternal');
+  if (view === 'paternal' || view === 'maternal') {
+    const slots = slotIdsForView(view);
     if (personId === slots.mgf) return '증조할아버지';
     if (personId === slots.mgm) return '증조할머니';
   }
@@ -394,7 +395,31 @@ export function reconcileViewTemplate(
           [slots.children[1][0]]: { from: '큰아버지의 아들', to: '큰형의 아들' },
           [slots.children[1][1]]: { from: '큰아버지의 딸', to: '큰형의 딸' },
         }
-      : {};
+      : view === 'maternal'
+        ? {
+            [slots.siblings[1].blood]: { from: '삼촌', to: '외삼촌' },
+            [slots.siblings[1].spouse]: { from: '숙모', to: '외숙모' },
+            [slots.children[1][0]]: { from: '삼촌의 아들', to: '외삼촌의 아들' },
+            [slots.children[1][1]]: { from: '삼촌의 딸', to: '외삼촌의 딸' },
+            [slots.mgf]: { from: '외할아버지', to: '증조할아버지' },
+            [slots.mgm]: { from: '외할머니', to: '증조할머니' },
+          }
+        : view === 'spouse'
+          ? {
+              [slots.siblings[0].spouse]: { from: '형수', to: '동서' },
+              [slots.siblings[1].spouse]: { from: '오빠 부인', to: '동서' },
+              [slots.siblings[3].spouse]: { from: '매형', to: '동서' },
+              [slots.siblings[4].spouse]: { from: '제수', to: '동서' },
+              [slots.children[0][0]]: { from: '형의 아들', to: '배우자 형의 아들' },
+              [slots.children[0][1]]: { from: '형의 딸', to: '배우자 형의 딸' },
+              [slots.children[1][0]]: { from: '오빠의 아들', to: '배우자 오빠의 아들' },
+              [slots.children[1][1]]: { from: '오빠의 딸', to: '배우자 오빠의 딸' },
+              [slots.children[3][0]]: { from: '누나의 아들', to: '배우자 누나의 아들' },
+              [slots.children[3][1]]: { from: '누나의 딸', to: '배우자 누나의 딸' },
+              [slots.children[4][0]]: { from: '남동생의 아들', to: '배우자 남동생의 아들' },
+              [slots.children[4][1]]: { from: '남동생의 딸', to: '배우자 남동생의 딸' },
+            }
+          : {};
   const forcedSiblingNames: Record<PersonId, string> =
     view === 'paternal'
       ? {
@@ -405,12 +430,19 @@ export function reconcileViewTemplate(
         }
       : view === 'maternal'
         ? {
-            [slots.siblings[1].blood]: '삼촌',
-            [slots.siblings[1].spouse]: '숙모',
+            [slots.siblings[1].blood]: '외삼촌',
+            [slots.siblings[1].spouse]: '외숙모',
             [slots.siblings[3].blood]: '이모',
             [slots.siblings[3].spouse]: '이모부',
           }
-        : {};
+        : view === 'spouse'
+          ? {
+              [slots.siblings[0].spouse]: '동서',
+              [slots.siblings[1].spouse]: '동서',
+              [slots.siblings[3].spouse]: '동서',
+              [slots.siblings[4].spouse]: '동서',
+            }
+          : {};
 
   const isAncestorSlot = (id: PersonId): boolean =>
     id === slots.father ||

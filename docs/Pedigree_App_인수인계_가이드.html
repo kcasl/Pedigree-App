@@ -1,0 +1,891 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>Pedigree App 인수인계 및 개발 가이드</title>
+  <style>
+    :root {
+      --navy: #13253c;
+      --navy-2: #1c3a5a;
+      --gold: #b0894a;
+      --sand: #f4efe6;
+      --paper: #fbfaf7;
+      --ink: #1a2332;
+      --muted: #5b6778;
+      --line: #d9d2c4;
+      --warn-bg: #fdf3e8;
+      --warn-bd: #d4a056;
+      --ok-bg: #eef6ef;
+      --ok-bd: #5d9b6a;
+      --info-bg: #eef3f8;
+      --info-bd: #4a7aa8;
+      --code-bg: #f3efe6;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      color: var(--ink);
+      background: white;
+      font-family: "Malgun Gothic", "맑은 고딕", "Apple SD Gothic Neo", sans-serif;
+      font-size: 10.5pt;
+      line-height: 1.62;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    @page {
+      size: A4;
+      margin: 16mm 15mm 18mm 15mm;
+    }
+    .cover {
+      min-height: 260mm;
+      background: var(--navy);
+      color: white;
+      padding: 28mm 18mm 18mm;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      page-break-after: always;
+    }
+    .cover-kicker {
+      letter-spacing: 0.28em;
+      font-size: 9.5pt;
+      color: #d6c4a0;
+      font-weight: 700;
+    }
+    .cover h1 {
+      font-size: 28pt;
+      line-height: 1.28;
+      margin: 18px 0 10px;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+    }
+    .cover .sub {
+      font-size: 12.5pt;
+      color: #d7deea;
+      max-width: 140mm;
+    }
+    .cover-rule {
+      width: 42mm;
+      height: 3px;
+      background: var(--gold);
+      margin: 16px 0 22px;
+    }
+    .cover-meta {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px 24px;
+      border-top: 1px solid rgba(255,255,255,0.18);
+      padding-top: 16px;
+      font-size: 10pt;
+    }
+    .cover-meta dt { color: #b8c4d4; font-size: 8.5pt; margin-bottom: 2px; }
+    .cover-meta dd { margin: 0 0 10px; }
+    .toc { page-break-after: always; padding-top: 2mm; }
+    h2 {
+      font-size: 16.5pt;
+      color: var(--navy);
+      margin: 0 0 10px;
+      padding-bottom: 6px;
+      border-bottom: 2px solid var(--navy);
+      letter-spacing: -0.02em;
+    }
+    h3 {
+      font-size: 12.2pt;
+      color: var(--navy-2);
+      margin: 16px 0 6px;
+    }
+    h4 {
+      font-size: 10.8pt;
+      color: var(--navy);
+      margin: 12px 0 4px;
+    }
+    p { margin: 0 0 8px; }
+    ul, ol { margin: 0 0 10px; padding-left: 18px; }
+    li { margin: 0 0 3px; }
+    a { color: var(--navy-2); }
+    .muted { color: var(--muted); }
+    .lead { font-size: 11.2pt; color: #334155; }
+    .chapter { page-break-before: always; }
+    .chapter.first { page-break-before: auto; }
+    .num {
+      display: inline-block;
+      background: var(--navy);
+      color: white;
+      font-size: 8.5pt;
+      padding: 1px 7px;
+      border-radius: 2px;
+      margin-right: 6px;
+      letter-spacing: 0.04em;
+    }
+    .box {
+      border-left: 4px solid var(--info-bd);
+      background: var(--info-bg);
+      padding: 8px 12px;
+      margin: 10px 0 12px;
+    }
+    .box.warn { border-left-color: var(--warn-bd); background: var(--warn-bg); }
+    .box.ok { border-left-color: var(--ok-bd); background: var(--ok-bg); }
+    .box .label {
+      font-weight: 700;
+      font-size: 9pt;
+      letter-spacing: 0.06em;
+      margin-bottom: 2px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 8px 0 14px;
+      font-size: 9.7pt;
+    }
+    th, td {
+      border: 1px solid var(--line);
+      padding: 6px 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: var(--navy);
+      color: white;
+      font-weight: 600;
+    }
+    tr:nth-child(even) td { background: var(--sand); }
+    code, .path {
+      font-family: Consolas, "Cascadia Mono", "D2Coding", monospace;
+      font-size: 8.8pt;
+    }
+    code {
+      background: var(--code-bg);
+      padding: 1px 4px;
+      border-radius: 2px;
+    }
+    pre {
+      background: var(--navy);
+      color: #eef3f8;
+      padding: 10px 12px;
+      font-family: Consolas, "Cascadia Mono", "D2Coding", monospace;
+      font-size: 8.6pt;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      word-break: break-all;
+      margin: 6px 0 12px;
+    }
+    .toc-list { list-style: none; padding: 0; }
+    .toc-list li {
+      display: flex;
+      justify-content: space-between;
+      border-bottom: 1px dotted var(--line);
+      padding: 7px 0;
+      margin: 0;
+    }
+    .toc-list .t { color: var(--navy); font-weight: 600; }
+    .toc-list .d { color: var(--muted); font-size: 9.5pt; }
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin: 8px 0 12px;
+    }
+    .card {
+      border: 1px solid var(--line);
+      padding: 10px 12px;
+      background: var(--paper);
+    }
+    .card b { color: var(--navy); }
+    .steps { counter-reset: step; list-style: none; padding: 0; }
+    .steps li {
+      counter-increment: step;
+      position: relative;
+      padding: 6px 0 8px 34px;
+      border-bottom: 1px solid var(--line);
+    }
+    .steps li::before {
+      content: counter(step);
+      position: absolute;
+      left: 0; top: 7px;
+      width: 22px; height: 22px;
+      background: var(--navy);
+      color: white;
+      border-radius: 50%;
+      font-size: 9pt;
+      font-weight: 700;
+      text-align: center;
+      line-height: 22px;
+    }
+    .footer-note {
+      margin-top: 18px;
+      font-size: 8.5pt;
+      color: var(--muted);
+      border-top: 1px solid var(--line);
+      padding-top: 8px;
+    }
+    .check { list-style: none; padding: 0; }
+    .check li {
+      padding: 5px 0 5px 22px;
+      position: relative;
+      border-bottom: 1px solid var(--line);
+    }
+    .check li::before {
+      content: "";
+      position: absolute;
+      left: 0; top: 8px;
+      width: 11px; height: 11px;
+      border: 1.5px solid var(--navy);
+    }
+    small.cap { color: var(--muted); font-size: 8.5pt; }
+  </style>
+</head>
+<body>
+
+<section class="cover">
+  <div>
+    <div class="cover-kicker">HANWON SYSTEM  ·  HANDOVER GUIDE</div>
+    <h1>Pedigree App<br>인수인계 및 개발 가이드</h1>
+    <div class="cover-rule"></div>
+    <p class="sub">앱을 고치고, VS Code(또는 Cursor)에서 빌드·실행·테스트하며, Cursor로 유지보수하기 위한 전체 안내입니다. 코드를 처음 받는 분도 이 문서만으로 시작할 수 있게 정리했습니다.</p>
+  </div>
+  <dl class="cover-meta">
+    <div>
+      <dt>앱 이름</dt><dd>가족 계보 및 연락처 관리시스템 (Pedigree App)</dd>
+      <dt>앱 버전</dt><dd>0.0.01</dd>
+      <dt>회사</dt><dd>한원시스템 (Hanwon System)</dd>
+    </div>
+    <div>
+      <dt>문서 일자</dt><dd>2026년 8월 31일</dd>
+      <dt>대상 독자</dt><dd>인수받는 개발자 · 유지보수 담당자</dd>
+      <dt>권장 도구</dt><dd>Cursor (VS Code 기반) + Android Studio</dd>
+    </div>
+  </dl>
+</section>
+
+<section class="toc">
+  <h2>목차</h2>
+  <ol class="toc-list">
+    <li><span class="t">1. 이 문서를 읽는 분께</span><span class="d">목적 · 권장 흐름</span></li>
+    <li><span class="t">2. 앱이 하는 일</span><span class="d">화면 · 로그인 · 체험기간 · 언어</span></li>
+    <li><span class="t">3. 저장소 구조</span><span class="d">front / back · 어디를 고치나</span></li>
+    <li><span class="t">4. 개발 PC 준비</span><span class="d">Node, JDK, Android Studio</span></li>
+    <li><span class="t">5. VS Code에서 열고 실행하기</span><span class="d">Metro · 에뮬레이터 · 실기기</span></li>
+    <li><span class="t">6. 테스트와 품질 확인</span><span class="d">Jest · 수동 점검</span></li>
+    <li><span class="t">7. 프론트엔드 구조와 핵심 규칙</span><span class="d">뷰 · 엔진 · 데이터 보호</span></li>
+    <li><span class="t">8. 백엔드와 동기화</span><span class="d">현재 OFF · 켤 때</span></li>
+    <li><span class="t">9. Cursor 설치와 유지보수</span><span class="d">설치부터 일 시키는 법</span></li>
+    <li><span class="t">10. 자주 고치는 일과 주의점</span><span class="d">실수하기 쉬운 곳</span></li>
+    <li><span class="t">11. 인수인계 체크리스트</span><span class="d">넘겨주고 받을 때</span></li>
+    <li><span class="t">부록. 명령 치트시트 · 트러블슈팅</span><span class="d">막혔을 때</span></li>
+  </ol>
+  <div class="box">
+    <div class="label">한 줄 요약</div>
+    이 프로젝트는 <b>React Native 안드로이드 앱</b>입니다. 족보 데이터는 기본적으로 <b>기기 안(AsyncStorage)</b>에 저장됩니다. 서버 동기화와 족보 공유는 코드에 들어 있지만 지금은 꺼져 있습니다. 유지보수는 <b>Cursor</b>에 폴더를 열고, 한국어로 시키면 됩니다.
+  </div>
+</section>
+
+<section class="chapter first">
+  <h2><span class="num">01</span>이 문서를 읽는 분께</h2>
+  <p class="lead">이 문서는 “코드를 다른 사람에게 넘긴 뒤에도, 그 사람이 VS Code/Cursor로 고치고 빌드하고 테스트할 수 있게” 만드는 것이 목적입니다.</p>
+
+  <h3>권장 작업 순서</h3>
+  <ol class="steps">
+    <li>4장을 보고 PC에 Node, JDK, Android Studio를 설치합니다.</li>
+    <li>Cursor(또는 VS Code)를 설치하고 저장소 폴더 <code>Pedigree_App</code>을 엽니다.</li>
+    <li>5장대로 앱을 한 번 실행해 봅니다. 홈 화면이 뜨면 환경은 된 것입니다.</li>
+    <li>6장 테스트를 한 번 돌립니다. 여기서 깨지면 코드가 아니라 환경 문제일 때가 많습니다.</li>
+    <li>7·8장으로 “어디를 고치면 되는지”를 파악한 뒤, 9장처럼 Cursor에게 일을 시킵니다.</li>
+  </ol>
+
+  <div class="grid-2">
+    <div class="card">
+      <b>Cursor를 쓰는 이유</b>
+      <p style="margin:6px 0 0">VS Code와 거의 같은 편집기입니다. 여기에 AI가 붙어 있어, 한국어로 “이 버그 고쳐줘”라고 하면 코드를 찾아 고칩니다. 인수받은 분이 코드를 전부 외울 필요는 없습니다.</p>
+    </div>
+    <div class="card">
+      <b>VS Code만 써도 됩니다</b>
+      <p style="margin:6px 0 0">빌드·실행·테스트는 VS Code 터미널에서도 동일합니다. Cursor는 VS Code 기반이라 단축키와 확장 개념이 같습니다. 이 문서는 둘 다 기준으로 적었습니다.</p>
+    </div>
+  </div>
+
+  <div class="box warn">
+    <div class="label">비밀번호 · 키는 이 문서에 없습니다</div>
+    데이터베이스 비밀번호, 서명 키스토어, Google OAuth 비밀값은 코드/채팅에 넣지 말고 인수자에게 별도로 전달하세요. <code>back/.env</code>는 Git에 올리지 않습니다.
+  </div>
+</section>
+
+<section class="chapter">
+  <h2><span class="num">02</span>앱이 하는 일</h2>
+  <p>가족 계보(족보)와 연락처·기념일·메모를 한 앱에서 관리합니다. 회사 표기는 설정/크레딧에 <b>한원시스템</b>, 문의 메일은 <code>front/src/config/appInfo.ts</code>에 있습니다.</p>
+
+  <h3>실행 흐름</h3>
+  <ol>
+    <li>첫 실행 시 <b>언어 선택</b> (한국어 / English / 日本語 / 中文). 이후 설정에서 바꿀 수 있습니다.</li>
+    <li><b>Google 로그인</b> 또는 <b>로그인 없이 시작(게스트)</b>.</li>
+    <li>홈에서 기능 타일로 들어갑니다.</li>
+  </ol>
+
+  <table>
+    <thead><tr><th>홈 타일</th><th>화면</th><th>하는 일</th></tr></thead>
+    <tbody>
+      <tr><td>가족 계보</td><td><code>PedigreeScreen</code></td><td>5세대 족보, 인물 추가/수정/삭제, 시점 변경, 친가·외가·배우자 집안 보기</td></tr>
+      <tr><td>연락처</td><td><code>ContactsScreen</code></td><td>족보에 있는 사람 연락처 목록, 문자 등</td></tr>
+      <tr><td>가족 검색</td><td><code>FamilySearchScreen</code></td><td>이름 등으로 인물 찾기</td></tr>
+      <tr><td>기념일</td><td><code>AnniversaryScreen</code></td><td>생일 등 다가오는 날</td></tr>
+      <tr><td>메모</td><td><code>MemoScreen</code></td><td>별도 메모 저장</td></tr>
+      <tr><td>설정</td><td><code>SettingsScreen</code></td><td>언어, 검색/기념일 표시, 동기화 상태, 로그아웃</td></tr>
+    </tbody>
+  </table>
+
+  <h3>체험 기간</h3>
+  <p>설치(첫 사용) 후 <b>182일(약 6개월)</b>이 지나면 열람만 가능하고 수정·삭제가 막힙니다. 기준 시각은 기기 <code>AsyncStorage</code>의 <code>app.trial.startedAt.v1</code>입니다. 코드: <code>front/src/storage/trialLicense.ts</code>.</p>
+
+  <h3>지금 켜져 있는 것 / 꺼져 있는 것</h3>
+  <table>
+    <thead><tr><th>기능</th><th>상태</th><th>스위치 위치</th></tr></thead>
+    <tbody>
+      <tr><td>기기 로컬 저장</td><td>켜짐</td><td>항상 동작 (AsyncStorage)</td></tr>
+      <tr><td>서버 족보 동기화 · 사진 업로드</td><td><b>꺼짐</b></td><td><code>front/src/config/features.ts</code> → <code>ENABLE_SERVER_SYNC</code></td></tr>
+      <tr><td>족보 내보내기·불러오기(공유 키)</td><td><b>꺼짐</b></td><td>같은 파일 → <code>ENABLE_PEDIGREE_SHARE</code></td></tr>
+      <tr><td>다국어</td><td>켜짐</td><td>ko / en / ja / zh</td></tr>
+    </tbody>
+  </table>
+  <p class="muted">서버를 다시 쓰려면 플래그를 <code>true</code>로 바꾸고, 백엔드·DB·Google OAuth·API 주소가 맞아야 합니다. 8장을 보세요.</p>
+</section>
+
+<section class="chapter">
+  <h2><span class="num">03</span>저장소 구조</h2>
+  <p>루트는 <code>C:\Project\Pedigree_App</code> (또는 받은 경로)입니다. Git 저장소 하나입니다.</p>
+
+  <table>
+    <thead><tr><th>경로</th><th>역할</th><th>평소에</th></tr></thead>
+    <tbody>
+      <tr><td><code>front/</code></td><td>React Native 앱 (실제 제품)</td><td>거의 모든 작업이 여기</td></tr>
+      <tr><td><code>back/</code></td><td>FastAPI + MySQL API</td><td>동기화를 켤 때만</td></tr>
+      <tr><td><code>front/src/screens/</code></td><td>화면</td><td>UI 문구·버튼·흐름</td></tr>
+      <tr><td><code>front/src/components/</code></td><td>카드, 모달, 연결선</td><td>족보 노드 모양</td></tr>
+      <tr><td><code>front/src/utils/</code></td><td>레이아웃·관계·동기화 엔진</td><td>버그의 핵심이 여기</td></tr>
+      <tr><td><code>front/src/storage/</code></td><td>로컬 저장</td><td>데이터 안 남을 때</td></tr>
+      <tr><td><code>front/src/i18n/</code></td><td>번역 문구</td><td>화면에 글자 바꿀 때</td></tr>
+      <tr><td><code>front/src/config/</code></td><td>API 주소, 기능 플래그, 앱 정보</td><td>서버 URL·버전</td></tr>
+      <tr><td><code>front/android/</code></td><td>네이티브 안드로이드</td><td>권한, 아이콘, 패키지명</td></tr>
+      <tr><td><code>front/ios/</code></td><td>iOS (Mac + Xcode 필요)</td><td>현재 주 배포는 Android</td></tr>
+      <tr><td><code>front/.cursor/rules/</code></td><td>Cursor가 항상 읽는 규칙</td><td>사용자 데이터 보호</td></tr>
+      <tr><td><code>front/_extract/</code></td><td>과거 추출·디버그 찌꺼기</td><td>제품 코드 아님. 건드리지 말 것</td></tr>
+    </tbody>
+  </table>
+
+  <h3>기술 스택 (프론트)</h3>
+  <table>
+    <thead><tr><th>항목</th><th>값</th></tr></thead>
+    <tbody>
+      <tr><td>React Native</td><td>0.83.1</td></tr>
+      <tr><td>React</td><td>19.2.0</td></tr>
+      <tr><td>Node</td><td>20 이상</td></tr>
+      <tr><td>언어</td><td>TypeScript</td></tr>
+      <tr><td>안드로이드 패키지</td><td><code>com.pedigree_app</code></td></tr>
+      <tr><td>minSdk / targetSdk</td><td>24 / 36</td></tr>
+      <tr><td>Gradle</td><td>9.0.0 (wrapper)</td></tr>
+      <tr><td>테스트</td><td>Jest (<code>npm test</code>)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>기술 스택 (백엔드)</h3>
+  <p>FastAPI, Uvicorn, SQLAlchemy, PyMySQL, Pillow. 의존성은 <code>back/requirements.txt</code>. DB는 MySQL, 스키마는 <code>back/sql/schema.sql</code>.</p>
+</section>
+
+<section class="chapter">
+  <h2><span class="num">04</span>개발 PC 준비 (Windows)</h2>
+  <p>안드로이드 앱을 이 PC에서 돌리려면 아래가 필요합니다. iOS 실기기는 Mac이 있어야 합니다.</p>
+
+  <h3>필수 설치</h3>
+  <table>
+    <thead><tr><th>프로그램</th><th>용도</th><th>확인 명령</th></tr></thead>
+    <tbody>
+      <tr><td>Node.js 20 LTS 이상</td><td>Metro, npm</td><td><code>node -v</code></td></tr>
+      <tr><td>JDK 17</td><td>Gradle 빌드</td><td><code>java -version</code></td></tr>
+      <tr><td>Android Studio</td><td>SDK, 에뮬레이터, 플랫폼 도구</td><td>SDK Manager에서 설치</td></tr>
+      <tr><td>Git</td><td>소스 받기</td><td><code>git --version</code></td></tr>
+      <tr><td>Cursor 또는 VS Code</td><td>편집 · 터미널 · (Cursor면 AI)</td><td>—</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Android Studio에서 꼭 설치할 것</h3>
+  <ul>
+    <li>Android SDK Platform 36 (또는 compileSdk에 맞는 플랫폼)</li>
+    <li>Android SDK Build-Tools 36.0.0</li>
+    <li>NDK 27.1.12297006 (프로젝트 <code>android/build.gradle</code>에 명시됨)</li>
+    <li>Android SDK Command-line Tools, Platform-Tools (<code>adb</code>)</li>
+    <li>에뮬레이터용 시스템 이미지 (API 34~36, Play Store 있는 x86_64/arm64)</li>
+  </ul>
+
+  <h3>환경 변수 (Windows)</h3>
+  <p>시스템 환경 변수에 대략 아래를 넣습니다. 경로는 PC마다 다릅니다.</p>
+<pre>ANDROID_HOME = C:\Users\계정\AppData\Local\Android\Sdk
+JAVA_HOME    = C:\Program Files\Java\jdk-17  (또는 Android Studio 내장 JBR)
+
+Path에 추가:
+  %ANDROID_HOME%\platform-tools
+  %ANDROID_HOME%\emulator
+  %JAVA_HOME%\bin</pre>
+  <p>새 터미널을 연 뒤 <code>adb version</code>이 되면 된 것입니다.</p>
+
+  <h3>에뮬레이터 또는 휴대전화</h3>
+  <ul>
+    <li><b>에뮬레이터:</b> Android Studio → Device Manager → 기기 만든 뒤 실행. Google Play가 있는 이미지가 로그인 테스트에 유리합니다.</li>
+    <li><b>실기기:</b> 개발자 옵션 → USB 디버깅. 케이블 연결 후 <code>adb devices</code>에 기기가 보여야 합니다.</li>
+  </ul>
+
+  <div class="box">
+    <div class="label">팁</div>
+    React Native 공식 환경 안내: <code>https://reactnative.dev/docs/set-up-your-environment</code> . Windows에서는 “Android” 탭만 따라가면 됩니다.
+  </div>
+</section>
+
+<section class="chapter">
+  <h2><span class="num">05</span>VS Code / Cursor에서 열고 실행하기</h2>
+  <p>Cursor와 VS Code의 차이는 AI뿐입니다. 폴더 열기, 터미널, npm 명령은 같습니다. 아래는 <b>프론트(<code>front</code>) 폴더가 작업 기준</b>입니다.</p>
+
+  <h3>1) 프로젝트 열기</h3>
+  <ol>
+    <li>Cursor 또는 VS Code 실행 → <b>파일 → 폴더 열기</b>.</li>
+    <li>가능하면 저장소 루트 <code>Pedigree_App</code>을 엽니다. 터미널에서 앱 명령을 칠 때는 반드시 <code>front</code>로 들어갑니다.</li>
+    <li>권장 확장 (둘 다 확장 마켓에서 검색):
+      <ul>
+        <li>ESLint</li>
+        <li>Prettier – Code formatter</li>
+        <li>(선택) React Native Tools</li>
+      </ul>
+    </li>
+  </ol>
+
+  <h3>2) 의존성 설치 (처음 한 번, 또는 package.json이 바뀐 뒤)</h3>
+  <p>터미널: <code>Ctrl + `</code> (백틱). PowerShell이면 됩니다.</p>
+<pre>cd C:\Project\Pedigree_App\front
+npm install</pre>
+  <p><code>node_modules</code>가 생기고 오류가 없으면 다음으로 갑니다. Node가 20 미만이면 실패할 수 있습니다.</p>
+
+  <h3>3) 에뮬레이터/기기 켜기</h3>
+<pre>adb devices</pre>
+  <p>목록에 <code>emulator-5554</code> 또는 실제 기기 ID가 <code>device</code>로 보여야 합니다. <code>unauthorized</code>면 폰에서 USB 디버깅을 허용하세요.</p>
+
+  <h3>4) Metro 시작 (JS 번들 서버)</h3>
+  <p>터미널 창을 <b>하나</b> 전용으로 씁니다. 이 창은 끄지 않습니다.</p>
+<pre>cd C:\Project\Pedigree_App\front
+npm start</pre>
+  <p>QR/메뉴가 나오면 성공입니다. 이후 JS를 저장하면 Fast Refresh로 앱이 거의 바로 반영됩니다.</p>
+
+  <h3>5) 앱 빌드 후 설치</h3>
+  <p><b>다른</b> 터미널을 엽니다. Metro는 그대로 둡니다.</p>
+<pre>cd C:\Project\Pedigree_App\front
+npm run android</pre>
+  <p>첫 빌드는 Gradle 때문에 수 분 걸립니다. 끝나면 에뮬레이터/폰에 앱이 뜨고 Metro에 연결됩니다.</p>
+
+  <div class="box ok">
+    <div class="label">성공 기준</div>
+    언어 선택 또는 로그인/게스트 화면 → 홈 타일(가족 계보, 연락처 등)이 보이면 개발 환경은 된 것입니다.
+  </div>
+
+  <h3>다시 실행할 때 (일상)</h3>
+  <ol>
+    <li>에뮬레이터 또는 폰 연결</li>
+    <li><code>front</code>에서 <code>npm start</code></li>
+    <li>앱이 이미 깔려 있으면 앱만 열고 Metro에 붙습니다. 안 붙어 있으면 <code>npm run android</code>를 다시 합니다.</li>
+  </ol>
+  <p>Android에서 개발 메뉴: 에뮬레이터는 <code>Ctrl + M</code>, 또는 <code>adb shell input keyevent 82</code>. 강제 새로고침은 <code>R</code> 두 번.</p>
+
+  <h3>코드만 고쳤을 때 / 네이티브를 건드렸을 때</h3>
+  <table>
+    <thead><tr><th>바꾼 것</th><th>할 일</th></tr></thead>
+    <tbody>
+      <tr><td><code>front/src</code>의 TS/TSX, 문구, 스타일</td><td>저장하면 Fast Refresh. 이상하면 Reload</td></tr>
+      <tr><td><code>package.json</code> 네이티브 라이브러리 추가</td><td><code>npm install</code> 후 <code>npm run android</code>로 다시 빌드</td></tr>
+      <tr><td><code>android/</code>, 권한, Gradle</td><td>앱 종료 후 <code>npm run android</code></td></tr>
+      <tr><td>Metro가 이상한 캐시를 먹을 때</td><td><code>npx react-native start --reset-cache</code></td></tr>
+    </tbody>
+  </table>
+
+  <h3>Release 빌드 (배포용 APK 맛보기)</h3>
+  <p>디버그는 Metro가 필요합니다. 스토어/전달용은 서명된 릴리스입니다. 지금은 debug keystore를 release에도 쓰고 있어(<code>android/app/build.gradle</code>), <b>실제 스토어 배포 전에 전용 키스토어를 만들어야</b> 합니다.</p>
+<pre>cd C:\Project\Pedigree_App\front\android
+.\gradlew.bat assembleRelease</pre>
+  <p>산출물 예: <code>front/android/app/build/outputs/apk/release/app-release.apk</code></p>
+
+  <h3>iOS</h3>
+  <p>Mac에서 <code>bundle install</code> → <code>cd ios</code> 후 <code>bundle exec pod install</code> → <code>npm run ios</code>. Windows에서는 iOS 시뮬레이터를 돌릴 수 없습니다.</p>
+</section>
+
+<section class="chapter">
+  <h2><span class="num">06</span>테스트와 품질 확인</h2>
+
+  <h3>자동 테스트 (Jest)</h3>
+  <p>족보 엔진은 UI보다 유틸 함수에 있습니다. 관계·출생순·뷰 동기화·데이터 병합을 건드렸다면 <b>반드시</b> 테스트를 돌리세요.</p>
+<pre>cd C:\Project\Pedigree_App\front
+npm test</pre>
+  <p>한 파일만:</p>
+<pre>npx jest src/utils/personPersist.test.ts
+npx jest src/utils/viewSync.kinship.test.ts</pre>
+
+  <h4>현재 테스트 파일 (front)</h4>
+  <table>
+    <thead><tr><th>파일</th><th>무엇을 지키나</th></tr></thead>
+    <tbody>
+      <tr><td><code>personPersist.test.ts</code></td><td>사진·이름 등 사용자 입력이 덮어쓰이지 않는지</td></tr>
+      <tr><td><code>viewSync.*.test.ts</code></td><td>나 시점 → 친가/외가/배우자 집안 복사</td></tr>
+      <tr><td><code>rebasePedigree.test.ts</code></td><td>다른 사람을 “나”로 시점 변경</td></tr>
+      <tr><td><code>siblingKinship.test.ts</code></td><td>형제·배우자 호칭</td></tr>
+      <tr><td><code>birthOrder.coupleChildren.test.ts</code></td><td>부부 아래 자녀 순서</td></tr>
+      <tr><td><code>familyDirectory.test.ts</code></td><td>검색용 인물 목록</td></tr>
+      <tr><td><code>phone.test.ts</code></td><td>전화번호 정규화</td></tr>
+      <tr><td><code>i18n.test.ts</code></td><td>번역 키</td></tr>
+      <tr><td><code>trialLicense.test.ts</code></td><td>6개월 만료</td></tr>
+      <tr><td><code>defaultLayout.smoke.test.ts</code></td><td>기본 레이아웃이 깨지지 않는지</td></tr>
+    </tbody>
+  </table>
+
+  <h3>앱에서 직접 확인할 것 (엔진을 건드린 뒤)</h3>
+  <ol class="check">
+    <li>게스트로 들어가 가족 계보가 기본 칸(조부모~자녀)으로 뜨는지</li>
+    <li>이름을 넣고 사진을 넣은 뒤 앱을 완전히 종료했다가 다시 켜도 남는지</li>
+    <li>형제/자녀를 추가하면 선이 연결되고 칸이 겹치지 않는지</li>
+    <li>친가 / 외가 / 배우자 집안 전환 시 같은 사람 정보가 따라가는지</li>
+    <li>다른 사람을 기준으로 시점 변경 후, 다시 원래 “나”로 돌아올 수 있는지</li>
+    <li>설정에서 언어를 바꿔 홈·족보 문구가 바뀌는지</li>
+  </ol>
+
+  <div class="box warn">
+    <div class="label">가장 흔한 사고</div>
+    레이아웃/템플릿을 고치면서 사람 객체를 통째로 덮어쓰면 <b>사진과 이름이 사라집니다</b>. 재시작 후 사진이 남아 있는지 반드시 확인하세요. 규칙은 7장과 <code>personPersist.ts</code>입니다.
+  </div>
+</section>
+
+<section class="chapter">
+  <h2><span class="num">07</span>프론트엔드 구조와 핵심 규칙</h2>
+
+  <h3>화면 연결</h3>
+  <p><code>index.js</code> → <code>App.tsx</code>(언어, 로그인, 체험기간) → <code>AuthenticatedApp.tsx</code>(홈과 하위 화면 라우팅). React Navigation을 쓰지 않고 단순 <code>route</code> 상태입니다.</p>
+<pre>LanguageSelect → Login/Guest → Home
+  ├ PedigreeScreen   (족보, 가장 큰 화면)
+  ├ Contacts / Search / Anniversaries / Memos
+  └ Settings</pre>
+
+  <h3>데이터 모델</h3>
+  <p>사람 한 명은 <code>front/src/types/pedigree.ts</code>의 <code>Person</code>입니다. 관계 필드는 <code>fatherId</code>, <code>motherId</code>, <code>spouseId</code>입니다. <b>화면 좌표는 Person에 넣지 않습니다.</b> 세대 배치는 엔진이 매번 계산합니다. 사용자가 노드를 살짝 민 오프셋만 별도 키로 저장합니다.</p>
+
+  <p>저장 단위는 사람 한 장이 아니라 <b>스토어</b>입니다. <code>front/src/types/lineage.ts</code>:</p>
+  <ul>
+    <li><code>version: 2</code></li>
+    <li><code>activeView</code>: 지금 보고 있는 집안</li>
+    <li><code>views</code>: 네 벌의 사람 맵
+      <ul>
+        <li><code>self</code> — 나 시점 (기준, 가장 중요)</li>
+        <li><code>paternal</code> — 친가</li>
+        <li><code>maternal</code> — 외가</li>
+        <li><code>spouse</code> — 배우자 집안</li>
+      </ul>
+    </li>
+  </ul>
+  <p>슬롯 ID 예: 나 시점의 본인은 <code>me_sib2</code> 부류입니다. 접두사 <code>me</code> / <code>pat</code> / <code>mat</code> / <code>spo</code>. 생성은 <code>standardTemplate.ts</code>.</p>
+
+  <h3>엔진 역할 (UI는 계산하지 않는다)</h3>
+  <table>
+    <thead><tr><th>모듈</th><th>역할</th></tr></thead>
+    <tbody>
+      <tr><td><code>standardTemplate.ts</code></td><td>빈 칸 템플릿, 슬롯 ID, 템플릿과 기존 데이터 맞추기(reconcile)</td></tr>
+      <tr><td><code>standardLayout.ts</code> / <code>pedigreeLayout.ts</code></td><td>노드 x,y와 세대 배치</td></tr>
+      <tr><td><code>kinship.ts</code> / <code>siblingKinship.ts</code></td><td>호칭(아버지, 형, 시동생 등)</td></tr>
+      <tr><td><code>birthOrder.ts</code></td><td>출생순, 부부 아래 자녀 줄</td></tr>
+      <tr><td><code>viewSync.ts</code></td><td><b>self만 진실</b>. 친가/외가/배우자 집안으로 복사. self는 여기서 수정하지 않음</td></tr>
+      <tr><td><code>rebasePedigree.ts</code></td><td>선택한 사람을 새로운 “나”로 두고 칸을 다시 채움</td></tr>
+      <tr><td><code>personPersist.ts</code></td><td>이름·전화·생일·사진·메모·성별 보호. 모든 병합의 입구</td></tr>
+    </tbody>
+  </table>
+  <p>연결선은 <code>EdgeLines.tsx</code>, 드래그 노드는 <code>DraggablePersonNode.tsx</code>. 레이아웃이 끝난 뒤에 선을 그립니다.</p>
+
+  <h3>로컬 저장 키</h3>
+  <table>
+    <thead><tr><th>키</th><th>내용</th></tr></thead>
+    <tbody>
+      <tr><td><code>pedigree.store.local.v2</code></td><td>족보 스토어</td></tr>
+      <tr><td><code>pedigree.nodeOffsets.local.v2</code></td><td>노드 수동 이동 오프셋</td></tr>
+      <tr><td><code>app.prefs.local.v1</code></td><td>언어, 검색/기념일 옵션</td></tr>
+      <tr><td><code>auth.google.user.v1</code></td><td>로그인 사용자</td></tr>
+      <tr><td><code>app.trial.startedAt.v1</code></td><td>체험 시작 시각</td></tr>
+    </tbody>
+  </table>
+  <p>구버전 평탄 저장(<code>pedigree.people.local.v1</code> 등)은 로드 시 v2로 마이그레이션합니다. 실패했다고 <code>createDefaultStore()</code>로 <b>통째 갈아끼우면 안 됩니다.</b></p>
+
+  <h3>사용자 데이터 보호 — 가장 중요한 규칙</h3>
+  <p>Cursor 규칙 파일: <code>front/.cursor/rules/persist-user-data.mdc</code> (항상 적용). 코드 강제: <code>front/src/utils/personPersist.ts</code>.</p>
+  <p><b>보호 필드:</b> <code>photoUri</code>, <code>name</code>, <code>phone</code>, <code>birthDate</code>, <code>note</code>, <code>gender</code>(unknown 제외)</p>
+  <ul>
+    <li>템플릿 맞출 때: 구조(부모/배우자 ID)는 템플릿, 사용자 입력은 기존 값 우선.</li>
+    <li>뷰 복사: 원본에 값이 있을 때만 덮어씀. 빈 값으로 지우지 않음.</li>
+    <li>서버 pull: 로컬 사진을 무시하지 않음.</li>
+    <li>금지: <code>{ ...existing, ...template }</code>처럼 템플릿이 나중에 와서 사용자 필드를 덮기.</li>
+  </ul>
+  <div class="box warn">
+    <div class="label">이 규칙을 어기면</div>
+    앱을 다시 켰을 때 사진이 빠지거나, 친가 보기로 전환할 때 이름이 기본 호칭으로 리셋됩니다. 레이아웃 리팩터 전에 이 모듈을 재사용했는지 확인하세요.
+  </div>
+
+  <h3>다국어</h3>
+  <p>문구는 <code>front/src/i18n/messages.ts</code>에 ko/en/ja/zh가 같이 있습니다. 화면에 한글을 직접 넣지 말고 <code>t('키')</code>를 씁니다. 호칭 번역은 <code>i18n/kinship.ts</code>. 새 문구를 넣으면 네 언어 모두, 그리고 가능하면 <code>i18n.test.ts</code>를 맞춥니다.</p>
+
+  <h3>테마</h3>
+  <p>색·세대 파스텔은 <code>front/src/theme/ui.ts</code>. 족보 배경은 보기마다 다릅니다(<code>ACTIVE_VIEW_BG</code>).</p>
+</section>
+
+<section class="chapter">
+  <h2><span class="num">08</span>백엔드와 동기화</h2>
+  <p>백엔드는 EC2 등에서 FastAPI로 돌리도록 만들어져 있습니다. <b>앱 기본값은 서버를 쓰지 않습니다</b> (<code>ENABLE_SERVER_SYNC = false</code>). 로컬만으로 족보·사진·메모가 동작합니다.</p>
+
+  <h3>프론트에서 서버 주소</h3>
+  <p><code>front/src/config/api.ts</code>의 <code>API_BASE_URL</code>. HTTPS(Nginx + Let’s Encrypt, sslip.io 호스트)를 전제로 적혀 있습니다. 서버를 옮기면 여기와 백엔드 <code>PUBLIC_BASE_URL</code>을 같이 바꿉니다.</p>
+
+  <h3>로컬에서 API 띄우기</h3>
+<pre>cd C:\Project\Pedigree_App\back
+copy .env.example .env
+# .env 를 실제 DB·도메인에 맞게 수정 (비밀번호는 인수자에게 별도 전달)
+pip install -r requirements.txt
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload</pre>
+  <p>DB는 MySQL. 최초 1회 <code>sql/schema.sql</code> 실행. 앱의 공유 테이블은 서버 기동 시 없으면 만들기도 합니다.</p>
+
+  <h3>주요 API</h3>
+  <table>
+    <thead><tr><th>메서드</th><th>경로</th><th>설명</th></tr></thead>
+    <tbody>
+      <tr><td>GET</td><td><code>/health</code></td><td>프로세스 생존</td></tr>
+      <tr><td>GET</td><td><code>/health/db</code></td><td>DB 연결</td></tr>
+      <tr><td>POST</td><td><code>/v1/auth/google</code></td><td>구글 로그인 후 사용자 upsert</td></tr>
+      <tr><td>GET/PUT/PATCH/DELETE</td><td><code>/v1/pedigree/{google_sub}</code></td><td>족보 스냅샷. Bearer 토큰 필요</td></tr>
+      <tr><td>POST</td><td><code>/v1/uploads/photo</code></td><td>사진 리사이즈(긴 변 640) 후 WebP/JPEG</td></tr>
+      <tr><td>POST/GET</td><td><code>/v1/share/pedigree</code></td><td>공유 키 (앱 플래그 OFF면 UI 없음)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Google 로그인</h3>
+  <p>Web Client ID는 <code>front/App.tsx</code>의 <code>GOOGLE_WEB_CLIENT_ID</code>와 백엔드 <code>GOOGLE_CLIENT_ID</code>가 맞아야 합니다. Android 패키지명 <code>com.pedigree_app</code>과 <b>디버그 SHA-1</b>을 Google Cloud 콘솔 OAuth 클라이언트에 등록하지 않으면 <code>DEVELOPER_ERROR</code>가 납니다. 인수 시 콘솔 접근 권한과 SHA-1을 함께 넘기세요.</p>
+  <p>디버그 SHA-1 확인 예:</p>
+<pre>cd C:\Project\Pedigree_App\front\android
+.\gradlew.bat signingReport</pre>
+
+  <div class="box">
+    <div class="label">동기화를 다시 켤 때</div>
+    <ol>
+      <li><code>ENABLE_SERVER_SYNC = true</code></li>
+      <li>API URL, 인증서, DB, Google 클라이언트가 살아 있는지</li>
+      <li>게스트는 서버에 안 올라갈 수 있음 — 구글 연동 후 확인</li>
+      <li>사진: 서버 URL과 로컬 URI가 섞이지 않게 <code>personPersist</code> 경로 유지</li>
+    </ol>
+  </div>
+</section>
+
+<section class="chapter">
+  <h2><span class="num">09</span>Cursor 설치와 유지보수</h2>
+  <p>Cursor는 VS Code를 기반으로 한 편집기입니다. 폴더를 열고, 채팅에 한국어로 시키면 프로젝트 파일을 읽고 고칩니다. <b>코드를 몰라도 유지보수를 시작할 수 있게</b> 하는 도구입니다. 다만 결과를 실행·테스트로 확인하는 책임은 사람에게 있습니다.</p>
+
+  <h3>설치</h3>
+  <ol class="steps">
+    <li>브라우저에서 <code>https://cursor.com</code> 접속 → Download → Windows용 설치.</li>
+    <li>설치 후 계정으로 로그인합니다. (회사 메일 권장)</li>
+    <li><b>파일 → 폴더 열기</b> → <code>Pedigree_App</code> 선택.</li>
+    <li>처음이면 “프로젝트 신뢰”를 허용합니다. 터미널·확장이 동작합니다.</li>
+    <li>VS Code 설정을 가져오겠다고 하면, 이미 VS Code를 쓰던 분은 가져와도 됩니다.</li>
+  </ol>
+  <p>공식 문서: 에디터 사용법, Agent, 규칙은 Cursor 설정과 문서에서 최신본을 보세요. UI 명칭은 버전에 따라 Chat / Agent / Composer로 조금 다를 수 있습니다. 공통점은 “대화로 코드를 고친다”입니다.</p>
+
+  <h3>화면에서 뭘 쓰나</h3>
+  <table>
+    <thead><tr><th>기능</th><th>언제</th></tr></thead>
+    <tbody>
+      <tr><td>일반 편집 (VS Code와 동일)</td><td>한두 줄, 문구만 바꿀 때</td></tr>
+      <tr><td>Chat / Ask</td><td>“이 함수가 뭐 하는 거야?”처럼 물어만 볼 때</td></tr>
+      <tr><td>Agent (권장)</td><td>버그 수정, 기능 추가, 테스트 실행까지 맡길 때</td></tr>
+    </tbody>
+  </table>
+  <p>Agent는 파일을 읽고, 고치고, 터미널에서 <code>npm test</code>를 돌릴 수 있습니다. Ask만 켜 두면 코드가 안 바뀝니다.</p>
+
+  <h3>이미 들어 있는 Cursor 규칙</h3>
+  <p><code>front/.cursor/rules/persist-user-data.mdc</code> 는 에이전트가 이 폴더에서 일할 때 항상 참고합니다. “사진 유지” 같은 말을 매번 안 해도 됩니다. 새 규칙을 넣을 때는 같은 <code>.cursor/rules/</code>에 짧은 마크다운으로 추가하면 인수자도 혜택을 봅니다.</p>
+
+  <h3>일을 잘 시키는 방법</h3>
+  <p>한 번에 모든 앱을 다시 짜라고 하지 마세요. <b>증상 + 어디 화면 + 기대 결과</b>를 적습니다.</p>
+
+  <h4>좋은 예</h4>
+  <div class="card" style="margin-bottom:10px">
+    가족 계보에서 형제를 추가하면 호칭이 “형”이어야 하는데 빈칸으로 나와. 출생일이 있는 경우야. <code>siblingKinship</code>이랑 나 시점 동기화 쪽을 보고, 테스트도 돌려줘. 사용자 사진·이름은 절대 지워지면 안 돼.
+  </div>
+  <h4>나쁜 예</h4>
+  <div class="card" style="margin-bottom:10px">
+    족보 이상해. 알아서 고쳐줘.
+  </div>
+
+  <h4>복사해서 쓰기 좋은 요청 틀</h4>
+<pre>프로젝트: Pedigree App (React Native, front 폴더)
+화면: (예: 가족 계보 / 설정)
+지금 동작: ...
+원하는 동작: ...
+건드리지 말 것: personPersist 보호 필드, 기본 슬롯 ID 체계
+끝난 뒤: front에서 npm test 실행하고 결과 알려줘</pre>
+
+  <h3>Agent가 일한 뒤 사람이 할 일</h3>
+  <ol>
+    <li>왼쪽 소스 관리(Git)에서 <b>어떤 파일이 바뀌었는지</b> 훑습니다. <code>_extract/</code>, <code>node_modules</code>, <code>.env</code>가 들어가면 안 됩니다.</li>
+    <li><code>front</code>에서 <code>npm test</code>.</li>
+    <li>에뮬레이터에서 해당 화면을 직접 눌러 봅니다. (6장 체크)</li>
+    <li>커밋은 의미가 분명할 때만. “AI가 고침” 한 줄보다, <b>왜</b> 고쳤는지를 한두 문장으로 적습니다.</li>
+  </ol>
+
+  <h3>Cursor와 VS Code를 같이 쓸 때</h3>
+  <ul>
+    <li>같은 폴더를 동시에 두 에디터로 열어도 됩니다. 저장만 겹치지 않으면 됩니다.</li>
+    <li>빌드는 어느 쪽 터미널이든 <code>front</code>에서 동일합니다.</li>
+    <li>인수자가 “AI는 싫다”면 VS Code만으로 5·6장이면 충분합니다.</li>
+  </ul>
+
+  <div class="box warn">
+    <div class="label">시키면 안 되는 것</div>
+    다른 사람 서버 침입, 비밀번호를 채팅에 붙여넣기, 스토어 키스토어를 Git에 커밋, <code>createDefaultStore()</code>로 사용자 데이터 초기화 후 배포. Agent가 제안해도 거절하세요.
+  </div>
+</section>
+
+<section class="chapter">
+  <h2><span class="num">10</span>자주 고치는 일과 주의점</h2>
+
+  <table>
+    <thead><tr><th>하고 싶은 일</th><th>주로 여는 파일</th></tr></thead>
+    <tbody>
+      <tr><td>버튼·안내 문구</td><td><code>src/i18n/messages.ts</code> (네 언어)</td></tr>
+      <tr><td>홈 타일</td><td><code>screens/HomeScreen.tsx</code></td></tr>
+      <tr><td>로그인 화면</td><td><code>App.tsx</code></td></tr>
+      <tr><td>족보 카드 모양</td><td><code>components/PersonNodeCard.tsx</code></td></tr>
+      <tr><td>사람 추가 모달</td><td><code>components/AddPersonModal.tsx</code></td></tr>
+      <tr><td>호칭이 틀림</td><td><code>utils/kinship.ts</code>, <code>siblingKinship.ts</code>, <code>i18n/kinship.ts</code></td></tr>
+      <tr><td>칸 위치·겹침</td><td><code>standardLayout.ts</code>, <code>pedigreeLayout.ts</code></td></tr>
+      <tr><td>집안 보기 정보가 다름</td><td><code>viewSync.ts</code> (self가 기준)</td></tr>
+      <tr><td>시점 변경</td><td><code>rebasePedigree.ts</code></td></tr>
+      <tr><td>앱 이름/버전/회사</td><td><code>config/appInfo.ts</code>, 안드로이드 <code>strings.xml</code></td></tr>
+      <tr><td>권한(카메라·사진)</td><td><code>AndroidManifest.xml</code>, <code>utils/permissions.ts</code></td></tr>
+      <tr><td>체험 기간 일수</td><td><code>storage/trialLicense.ts</code>의 <code>TRIAL_DURATION_DAYS</code></td></tr>
+    </tbody>
+  </table>
+
+  <h3>하지 말 것</h3>
+  <ul>
+    <li><code>front/_extract/</code> 의 옛 파일을 “원본”으로 착각하고 되돌리기</li>
+    <li>좌표를 Person JSON에 저장하기</li>
+    <li>UI 컴포넌트 안에서 세대·호칭을 새로 계산하기 (엔진을 부르세요)</li>
+    <li>테스트 없이 <code>viewSync</code> / <code>rebasePedigree</code> / <code>standardTemplate</code> 대규모 수정</li>
+    <li>로드 실패 시 빈 템플릿으로 사용자 족보를 갈아끼우기</li>
+  </ul>
+
+  <h3>MASTER_SPEC.md 에 대하여</h3>
+  <p><code>front/MASTER_SPEC.md</code>는 초기 설계 메모입니다. “좌표 저장 금지, 관계 기반 재계산, 5세대”는 여전히 맞습니다. 다만 실제 코드는 4개 뷰·슬롯 템플릿·<code>personPersist</code>로 더 구체화되어 있습니다. <b>충돌하면 코드를 따릅니다.</b></p>
+</section>
+
+<section class="chapter">
+  <h2><span class="num">11</span>인수인계 체크리스트</h2>
+  <p>넘기는 사람과 받는 사람이 같이 표시하세요.</p>
+
+  <h3>넘기는 사람</h3>
+  <ol class="check">
+    <li>Git 저장소 접근 (원격 URL, 권한)</li>
+    <li>이 PDF와 소스 위치</li>
+    <li>Google Cloud OAuth (웹/안드로이드 클라이언트, SHA-1)</li>
+    <li>서버를 쓸 경우: SSH, Nginx, <code>.env</code> 값, DB 계정 — <b>메일이 아닌 안전한 채널</b></li>
+    <li>스토어 올릴 계획이면 서명 키스토어와 비밀번호 (Git 금지)</li>
+    <li>현재 <code>ENABLE_SERVER_SYNC</code> / <code>ENABLE_PEDIGREE_SHARE</code> 가 false라는 점 구두 확인</li>
+    <li>미커밋 작업이 있으면 커밋하거나, 무엇이 진행 중인지 메모</li>
+  </ol>
+
+  <h3>받는 사람 — 첫날</h3>
+  <ol class="check">
+    <li>4장 도구 설치, <code>adb devices</code> 성공</li>
+    <li><code>front</code>에서 <code>npm install</code> → <code>npm start</code> → <code>npm run android</code></li>
+    <li>게스트로 족보 한 명 수정 후 재시작, 사진/이름 유지 확인</li>
+    <li><code>npm test</code> 통과</li>
+    <li>Cursor로 이 폴더를 열고, Ask에 “로그인 흐름을 App.tsx 기준으로 설명해줘” 테스트</li>
+  </ol>
+
+  <h3>받는 사람 — 첫 수정</h3>
+  <ol class="check">
+    <li>이슈 하나를 한국어로 Agent에게 맡긴다</li>
+    <li>diff를 읽고 보호 필드·슬롯 ID가 함부로 바뀌지 않았는지 본다</li>
+    <li>테스트 + 에뮬레이터 확인 후 커밋</li>
+  </ol>
+</section>
+
+<section class="chapter">
+  <h2>부록 A. 명령 치트시트</h2>
+  <p>모두 <code>front</code> 기준. 백엔드만 마지막 블록.</p>
+<pre># 설치
+npm install
+
+# 개발
+npm start                 # Metro
+npm run android           # 빌드+설치 (active-arch-only)
+npm test                  # Jest
+npm run lint              # ESLint
+
+# Metro 캐시
+npx react-native start --reset-cache
+
+# 기기
+adb devices
+adb reverse tcp:8081 tcp:8081
+adb logcat *:S ReactNative:V ReactNativeJS:V
+
+# Android 서명 정보 (Google 로그인 SHA-1)
+cd android
+.\gradlew.bat signingReport
+
+# 릴리스 APK
+cd android
+.\gradlew.bat assembleRelease
+
+# 백엔드 (back 폴더)
+pip install -r requirements.txt
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload</pre>
+
+  <h2>부록 B. 막혔을 때</h2>
+  <table>
+    <thead><tr><th>증상</th><th>먼저 볼 것</th></tr></thead>
+    <tbody>
+      <tr><td><code>sdk location not found</code></td><td><code>android/local.properties</code>의 <code>sdk.dir</code>, 또는 <code>ANDROID_HOME</code></td></tr>
+      <tr><td>Gradle / NDK 오류</td><td>Android Studio SDK Manager에서 NDK 27.1.12297006, JDK 17</td></tr>
+      <tr><td>앱은 깔리는데 빨간 화면</td><td>Metro가 켜져 있는지, <code>adb reverse tcp:8081 tcp:8081</code></td></tr>
+      <tr><td>Google 로그인 DEVELOPER_ERROR</td><td>패키지명, SHA-1, Web Client ID</td></tr>
+      <tr><td>포트 8081 사용 중</td><td>다른 Metro. 작업 관리자 또는 <code>npx react-native start --port 8082</code></td></tr>
+      <tr><td>사진이 재시작 후 사라짐</td><td><code>personPersist</code> 우회 여부, 동기화 병합 순서</td></tr>
+      <tr><td>테스트만 대량 실패</td><td>Node 버전, <code>npm install</code>, 엔진 수정 범위</td></tr>
+      <tr><td><code>reanimated</code> 관련 크래시</td><td><code>babel.config.js</code>에서 reanimated 플러그인이 <b>마지막</b>인지, <code>index.js</code>에서 import 순서</td></tr>
+    </tbody>
+  </table>
+
+  <h2>부록 C. 핵심 파일 지도</h2>
+  <pre style="white-space:pre; word-break:normal;">Pedigree_App
+├─ front/                 ← 일상 작업 루트
+│  ├─ App.tsx             언어·로그인·게스트
+│  ├─ index.js            엔트리 (gesture-handler, reanimated)
+│  ├─ package.json        스크립트·의존성
+│  ├─ MASTER_SPEC.md      초기 설계 (참고용)
+│  ├─ .cursor/rules/      Cursor 고정 규칙
+│  ├─ android/            네이티브 앱
+│  └─ src/
+│     ├─ screens/         화면
+│     ├─ components/      노드·모달·선
+│     ├─ utils/           엔진 (여기가 핵심)
+│     ├─ storage/         AsyncStorage
+│     ├─ i18n/            번역
+│     ├─ config/          API, features, appInfo
+│     └─ types/           Person, PedigreeStore
+└─ back/                  동기화 서버
+   ├─ app/main.py
+   ├─ sql/schema.sql
+   └─ .env.example</pre>
+
+  <p class="footer-note">
+    Pedigree App 인수인계 및 개발 가이드 · 한원시스템 · 2026-08-31 · 앱 버전 0.0.01<br>
+    이 문서는 해당 일자 소스 기준입니다. 기능 플래그와 API 주소는 코드가 우선합니다.
+  </p>
+</section>
+
+</body>
+</html>

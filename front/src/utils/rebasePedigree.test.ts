@@ -645,7 +645,7 @@ describe('rebaseStoreAroundPerson', () => {
           person.motherId === mother?.motherId,
       )
       .map(person => person.name);
-    expect(maternalSibs).not.toEqual(expect.arrayContaining(['이모', '삼촌']));
+    expect(maternalSibs).not.toEqual(expect.arrayContaining(['이모', '삼촌', '외삼촌']));
   });
 
   it('아들 기준이면 실데이터 배우자 형제만 외가 프리셋에 실린다', () => {

@@ -57,7 +57,10 @@ export function SettingsScreen({
   const { t, locale, setLocale } = useI18n();
   const { bottomInset } = useScreenInsets();
   const { guardWrite } = useTrialLicense();
-  const [prefs, setPrefs] = useState<AppPrefs>(DEFAULT_APP_PREFS);
+  const [prefs, setPrefs] = useState<AppPrefs>({
+    ...DEFAULT_APP_PREFS,
+    localeChosen: true,
+  });
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -65,7 +68,7 @@ export function SettingsScreen({
   }, []);
 
   const updatePref = async <K extends keyof AppPrefs>(key: K, value: AppPrefs[K]) => {
-    const next = { ...prefs, locale, [key]: value };
+    const next = { ...prefs, locale, localeChosen: true, [key]: value };
     setPrefs(next);
     await saveAppPrefs(next);
   };

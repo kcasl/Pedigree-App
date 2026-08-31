@@ -188,7 +188,13 @@ function labelFromCode(
   }
   if (/^F(F|M)[SDC][HWP]$/.test(code)) {
     if (target.gender === 'male') return '고모부';
-    if (target.gender === 'female') return '숙모';
+    if (target.gender === 'female') {
+      const blood = target.spouseId && people ? people[target.spouseId] : undefined;
+      if (blood) {
+        return paternalUncleLabel(self, blood, people) === '큰아버지' ? '큰어머니' : '숙모';
+      }
+      return '숙모';
+    }
     return '고모부/숙모';
   }
   if (/^M(F|M)[SDC][HWP]$/.test(code)) {
@@ -201,13 +207,24 @@ function labelFromCode(
 
   if (/^[HWP][FM]$/.test(code)) {
     if (self.gender === 'male') return target.gender === 'female' ? '장모' : '장인';
-    if (self.gender === 'female') return target.gender === 'female' ? '시모' : '시부';
+    if (self.gender === 'female') return target.gender === 'female' ? '시어머니' : '시아버지';
     return '배우자 부모';
   }
   if (/^[HWP][FM][SDC]$/.test(code)) {
-    if (self.gender === 'male') return target.gender === 'female' ? '처제/처형' : '처남';
-    if (self.gender === 'female') return target.gender === 'female' ? '시누이' : '시동생';
-    return '배우자 형제자매';
+    const spouse = self.spouseId && people ? people[self.spouseId] : undefined;
+    const rel = spouse ? compareAgeByBirthDate(spouse, target) : 'unknown';
+    if (self.gender === 'female') {
+      if (target.gender === 'female') return '시누이';
+      if (rel === 'older') return '시아주버니';
+      if (rel === 'younger') return '시동생';
+      return '시동생';
+    }
+    if (target.gender === 'female') {
+      if (rel === 'older') return '처형';
+      if (rel === 'younger') return '처제';
+      return '처제/처형';
+    }
+    return '처남';
   }
   if (/^[HWP][FM][SDC][HWP]$/.test(code)) return '동서';
   if (/^[HWP][FM][SDC]{2}$/.test(code)) return '배우자 조카';
@@ -245,12 +262,16 @@ const PRIORITY: Record<string, number> = {
   이모: 90,
   장인: 89,
   장모: 89,
+  시아버지: 89,
+  시어머니: 89,
   시부: 89,
   시모: 89,
   처남: 88,
+  처형: 88,
   처제: 88,
   시누이: 88,
   시동생: 88,
+  시아주버니: 88,
   형: 87,
   오빠: 87,
   누나: 87,
@@ -280,6 +301,7 @@ const PRIORITY: Record<string, number> = {
   매형: 88,
   매부: 88,
   형부: 88,
+  큰어머니: 87,
   고모부: 87,
   숙모: 87,
   이모부: 87,
@@ -346,14 +368,21 @@ function isMaternalParentSiblingBlood(
   );
 }
 
-function parentSiblingSpouseLabel(blood: Person, spouse: Person): string {
+function parentSiblingSpouseLabel(
+  self: Person,
+  blood: Person,
+  spouse: Person,
+  people: Record<PersonId, Person>,
+): string {
   if (blood.gender === 'female') {
     if (spouse.gender === 'male') return '고모부';
     if (spouse.gender === 'female') return '숙모';
     return '고모부/숙모';
   }
   if (blood.gender === 'male') {
-    if (spouse.gender === 'female') return '숙모';
+    if (spouse.gender === 'female') {
+      return paternalUncleLabel(self, blood, people) === '큰아버지' ? '큰어머니' : '숙모';
+    }
     return '숙부';
   }
   return '숙부/고모부';
@@ -386,7 +415,7 @@ function resolveInLawLabel(
     return siblingSpouseLabel(self, blood);
   }
   if (isParentSiblingBlood(self, blood, people)) {
-    return parentSiblingSpouseLabel(blood, target);
+    return parentSiblingSpouseLabel(self, blood, target, people);
   }
   if (isMaternalParentSiblingBlood(self, blood, people)) {
     return maternalParentSiblingSpouseLabel(blood, target);
@@ -462,6 +491,8 @@ export function kinshipLabelToDisplayName(label: string, person: Person): string
   if (label === '조모') return '친할머니';
   if (label === '외조부') return '외할아버지';
   if (label === '외조모') return '외할머니';
+  if (label === '시부') return '시아버지';
+  if (label === '시모') return '시어머니';
   if (label === '자식') return person.gender === 'female' ? '딸' : '아들';
   return label;
 }

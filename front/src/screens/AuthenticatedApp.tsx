@@ -37,6 +37,9 @@ export function AuthenticatedApp({
 
   useEffect(() => {
     const onHardwareBack = () => {
+      if (route === 'pedigree') {
+        return false;
+      }
       if (route !== 'home') {
         setRoute('home');
         setExitHintVisible(false);

@@ -79,8 +79,8 @@ function isUnusedTemplatePerson(person: Person): boolean {
   const name = person.name?.trim() ?? '';
   if (!name) return true;
   return (
-    /^(큰아버지|큰어머니|고모|고모부|삼촌|숙모|이모|이모부)$/.test(name) ||
-    /^(?:형|큰형|누나|남동생|오빠|언니|여동생|큰아버지|고모|삼촌|이모|나)의 (?:아들|딸|손자)$/.test(
+    /^(큰아버지|큰어머니|고모|고모부|삼촌|숙모|외삼촌|외숙모|이모|이모부|동서)$/.test(name) ||
+    /^(?:형|큰형|누나|남동생|오빠|언니|여동생|큰아버지|고모|삼촌|외삼촌|이모|나|배우자 형|배우자 오빠|배우자 누나|배우자 남동생)의 (?:아들|딸|손자)$/.test(
       name,
     ) ||
     /^(나의 아들|나의 딸|나의 손자)$/.test(name)
@@ -88,7 +88,7 @@ function isUnusedTemplatePerson(person: Person): boolean {
 }
 
 const DEFAULT_SLOT_NAME =
-  /^(형|큰형|나|누나|남동생|오빠|언니|여동생|배우자|아버지|어머니|친할아버지|친할머니|외할아버지|외할머니|증조할아버지|증조할머니|큰아버지|큰어머니|고모|고모부|삼촌|숙모|이모|이모부|형수|제수|매형|매부|매제|형부|제부|오빠 부인|배우자 .+)$/;
+  /^(형|큰형|나|누나|남동생|오빠|언니|여동생|배우자|아버지|어머니|친할아버지|친할머니|외할아버지|외할머니|증조할아버지|증조할머니|큰아버지|큰어머니|고모|고모부|삼촌|숙모|외삼촌|외숙모|이모|이모부|형수|제수|매형|매부|매제|형부|제부|오빠 부인|동서|처남|처형|처제|시누이|시동생|시아주버니|배우자 .+)$/;
 
 /** 템플릿 기본 칸만 있는 인물은 방계·비속으로 복사하지 않음 */
 function isExportableRelative(person: Person): boolean {
@@ -875,7 +875,7 @@ function isPlaceholderSpouse(person: Person): boolean {
   if (isExportableRelative(person)) return false;
   const name = person.name?.trim() ?? '';
   if (!name || name === '배우자' || /^배우자\s/.test(name)) return true;
-  return /^(형수|제수|매형|매부|매제|형부|제부|큰어머니|고모부|숙모|이모부|오빠 부인)$/.test(
+  return /^(형수|제수|매형|매부|매제|형부|제부|큰어머니|고모부|숙모|이모부|외숙모|오빠 부인|동서)$/.test(
     name,
   );
 }

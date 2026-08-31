@@ -82,6 +82,26 @@ function spouseLabelBySiblingRelation(
   return '인척';
 }
 
+/** 배우자 집안 형제 — 나 시점(남성 기본: 처가, 여성: 시가) */
+export function spouseSideSiblingLabel(
+  selfGender: Person['gender'] | undefined,
+  sibling: Person,
+  rel: AgeRelation,
+): string {
+  if (selfGender === 'female') {
+    if (sibling.gender === 'female') return '시누이';
+    if (rel === 'older') return '시아주버니';
+    if (rel === 'younger') return '시동생';
+    return '시동생';
+  }
+  if (sibling.gender === 'female') {
+    if (rel === 'older') return '처형';
+    if (rel === 'younger') return '처제';
+    return '처제/처형';
+  }
+  return '처남';
+}
+
 export function siblingSpouseLabel(
   self: Person,
   siblingBlood: Person,

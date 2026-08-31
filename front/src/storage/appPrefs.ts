@@ -7,12 +7,15 @@ export type AppPrefs = {
   hideEmptyPeopleInSearch: boolean;
   showPhoneOnAnniversaries: boolean;
   locale: Locale;
+  /** 첫 실행에서 언어를 고르면 true. 기존 설치는 저장본에 필드가 없어도 true로 본다. */
+  localeChosen: boolean;
 };
 
 export const DEFAULT_APP_PREFS: AppPrefs = {
   hideEmptyPeopleInSearch: true,
   showPhoneOnAnniversaries: true,
   locale: DEFAULT_LOCALE,
+  localeChosen: false,
 };
 
 function parsePrefs(raw: string | null): AppPrefs {
@@ -29,6 +32,8 @@ function parsePrefs(raw: string | null): AppPrefs {
           ? parsed.showPhoneOnAnniversaries
           : DEFAULT_APP_PREFS.showPhoneOnAnniversaries,
       locale: isLocale(parsed.locale) ? parsed.locale : DEFAULT_APP_PREFS.locale,
+      localeChosen:
+        typeof parsed.localeChosen === 'boolean' ? parsed.localeChosen : true,
     };
   } catch {
     return { ...DEFAULT_APP_PREFS };

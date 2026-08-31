@@ -28,6 +28,7 @@ import { AuthenticatedApp } from './src/screens/AuthenticatedApp';
 import { TrialLicenseProvider } from './src/hooks/useTrialLicense';
 import { I18nProvider, useI18n } from './src/i18n';
 import { AppCredits } from './src/components/AppCredits';
+import { LanguageSelectScreen } from './src/screens/LanguageSelectScreen';
 import { ui } from './src/theme/ui';
 
 const AUTH_STORAGE_KEY = 'auth.google.user.v1';
@@ -95,7 +96,7 @@ export default function App() {
 }
 
 function AppShell() {
-  const { t } = useI18n();
+  const { t, ready: i18nReady, needsLocalePick } = useI18n();
   const [isBooting, setIsBooting] = useState(true);
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [user, setUser] = useState<StoredAuthUser | null>(null);
@@ -350,11 +351,13 @@ function AppShell() {
   return (
     <>
       <StatusBar barStyle="dark-content" backgroundColor={ui.color.surface} translucent={false} />
-      {isBooting ? (
+      {isBooting || !i18nReady ? (
         <View style={styles.loadingWrap}>
           <ActivityIndicator size="large" color={ui.color.accent} />
           <Text style={styles.loadingText}>{t('auth.preparing')}</Text>
         </View>
+      ) : needsLocalePick ? (
+        <LanguageSelectScreen />
       ) : isAuthenticated ? (
         <AuthenticatedApp
           auth={
