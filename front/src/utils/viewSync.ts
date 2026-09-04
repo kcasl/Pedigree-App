@@ -1,6 +1,11 @@
 /**
  * 뷰 간 동기화 — **나 시점(self)이 기준**.
- * self → 친가/외가/배우자 집안으로만 필드를 복사한다. self는 syncAllViews에서 절대 수정하지 않는다.
+ *
+ * 흐름:
+ * 1) 나 보기 편집 → syncAllViews: self → 친가/외가/배우자만 복사. self는 수정하지 않음.
+ * 2) 다른 보기 편집 → syncStoreAfterEdit: 먼저 self에 반영한 뒤 syncAllViews.
+ *
+ * 사용자 필드 복사는 반드시 mergeUserFieldsFromSource를 경유한다.
  */
 
 import type { ActiveView, PedigreeStore } from '../types/lineage';
@@ -1091,6 +1096,7 @@ function propagateLineageEditToSelf(
   }
 }
 
+/** 편집 반영 후 전체 재동기화. self 편집이면 propagate 없이 sync만 */
 export function syncStoreAfterEdit(
   store: PedigreeStore,
   editedView: ActiveView,
@@ -1464,6 +1470,11 @@ function resolveKinshipRootId(
   return slots.selfId;
 }
 
+/**
+ * 현재 보기의 카드 호칭.
+ * 나 보기: 경로 호칭 + 형제 줄 보정.
+ * 친가/외가/배우자: 사용자(나) 시점 라벨로 덮어쓴다.
+ */
 export function buildViewKinshipLabels(
   view: ActiveView,
   peopleById: Record<PersonId, Person>,

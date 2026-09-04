@@ -1,3 +1,9 @@
+/**
+ * 족보 메인 화면.
+ * store(인물·관계) → Layout Engine → EdgeLines 순으로 그린다. 좌표는 저장하지 않는다.
+ * 편집은 syncStoreAfterEdit로 나 시점과 다른 보기를 맞춘다.
+ */
+
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -111,6 +117,7 @@ function openedOnSelfView(store: PedigreeStore): PedigreeStore {
   return store.activeView === 'self' ? store : { ...store, activeView: 'self' };
 }
 
+/** 성별·기존 부모 링크로 father/mother 역할을 추정 */
 function inferParentRole(
   next: Record<PersonId, Person>,
   parentId: PersonId,
@@ -263,6 +270,7 @@ export function PedigreeScreen({
   const [store, setStore] = useState<PedigreeStore>(createInitialStore);
   const { expired: writeLocked, guardWrite } = useTrialLicense();
   const activeView = store.activeView;
+  /** 현재 보기 인물 맵. 레이아웃·편집의 유일한 입력 */
   const peopleById = store.views[activeView];
   const slots = useMemo(() => slotIdsForView(activeView), [activeView]);
   const self = peopleById[slots.selfId];
@@ -270,11 +278,13 @@ export function PedigreeScreen({
   const updateActiveViewPeople = (
     updater: (prev: Record<PersonId, Person>) => Record<PersonId, Person>,
   ) => {
+    // 현재 보기만 고친 뒤 syncStoreAfterEdit가 self ↔ 다른 보기를 맞춤
     setStore(prev =>
       syncStoreAfterEdit(prev, prev.activeView, updater(prev.views[prev.activeView])),
     );
   };
 
+  /** 보기만 전환. self 기준으로 다른 시점을 다시 맞추고 초점은 그 보기의 본인 슬롯 */
   const switchLineageView = useCallback((view: ActiveView) => {
     const nextSlots = slotIdsForView(view);
     setStore(prev => syncAllViews({ ...prev, activeView: view }));
@@ -316,6 +326,7 @@ export function PedigreeScreen({
 
   const selectedDetail = detailId ? peopleById[detailId] : undefined;
 
+  /** 서버 패치 큐를 로컬에 보관. 동기화가 꺼져 있으면 no-op */
   const persistQueue = async () => {
     if (!ENABLE_SERVER_SYNC) return;
     try {
@@ -325,6 +336,7 @@ export function PedigreeScreen({
     }
   };
 
+  /** gzip 패치를 서버에 순차 전송. 실패 시 큐를 남겨 재시도 */
   const flushQueue = async () => {
     if (!ENABLE_SERVER_SYNC) return;
     if (!auth?.googleSub || !auth.accessToken) return;
@@ -364,6 +376,7 @@ export function PedigreeScreen({
     }
   };
 
+  // 로컬 로드 → (옵션) 서버 pull. 사용자 필드는 mergePedigreeStoresPreferLocalUserData로 지킨다.
   useEffect(() => {
     let mounted = true;
     const hydrate = async () => {
@@ -458,6 +471,7 @@ export function PedigreeScreen({
     };
   }, [auth?.accessToken, auth?.googleSub, legacyQueueStorageKey]);
 
+  // hydrate 이후에만 저장. 빈 기본 store로 기존 데이터를 덮지 않는다.
   useEffect(() => {
     if (!isHydrated) return;
     savePedigreeStore(store)
@@ -548,6 +562,7 @@ export function PedigreeScreen({
     });
   };
 
+  /** 관계는 peopleById만 사용. 좌표는 계산 결과이며 저장하지 않는다 */
   const layout = useMemo(() => {
     try {
       return buildStandardPedigreeLayout(peopleById, {
@@ -569,6 +584,7 @@ export function PedigreeScreen({
     }
   }, [peopleById, activeView, layoutBase]);
 
+  /** 레이아웃 좌표 + 사용자 드래그 오프셋. 오프셋은 보기별로 저장 */
   const displayLayout = useMemo(() => {
     const nodeById: Record<PersonId, PositionedNode> = {};
     const nodes: PositionedNode[] = [];

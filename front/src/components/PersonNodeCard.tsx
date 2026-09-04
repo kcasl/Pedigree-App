@@ -1,3 +1,7 @@
+/**
+ * 인물 카드. 레이아웃 엔진이 준 크기만 쓰고, 좌표는 부모(DraggablePersonNode)가 잡는다.
+ */
+
 import React, { useMemo } from 'react';
 import {
   Image,

@@ -1,5 +1,6 @@
 /**
- * SDD 참고 4세대 고정 슬롯 배치
+ * SDD 참고 4세대 고정 슬롯 배치.
+ * 좌표는 저장하지 않는다. people(관계)만 받아 세대·형제 줄을 계산한다.
  */
 
 import type { ActiveView } from '../types/lineage';
@@ -1383,6 +1384,10 @@ function tagBranchPerson(
   if (id) branchByPersonId.set(id, branchIndex);
 }
 
+/**
+ * 현재 보기 people → 카드 좌표·연결선.
+ * 형제 줄은 초점(나/아버지/어머니/배우자)을 가운데 두고 연장자를 왼쪽에 둔다.
+ */
 export function buildStandardPedigreeLayout(
   people: Record<PersonId, Person>,
   options: Partial<StandardLayoutOptions> = {},

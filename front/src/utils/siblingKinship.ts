@@ -1,3 +1,8 @@
+/**
+ * 형제·형제 배우자 호칭.
+ * 생년월일이 없으면 슬롯 순서(orderedBloodIds)로 형/동생을 가린다.
+ */
+
 import type { Person, PersonId } from '../types/pedigree';
 import { compareAgeByBirthDate, type AgeRelation } from './birthOrder';
 
@@ -111,6 +116,7 @@ export function siblingSpouseLabel(
   return spouseLabelBySiblingRelation(rel, siblingBlood.gender, self.gender);
 }
 
+/** 형제 혈족 + 그 배우자 호칭을 한 맵으로 */
 export function buildSiblingKinshipLabels(
   peopleById: Record<PersonId, Person>,
   selfId: PersonId,

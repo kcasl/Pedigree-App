@@ -11,7 +11,7 @@
  * 족보명·호칭은 모든 보기에서 나(사용자) 시점.
  */
 
-import type { ActiveView } from '../types/lineage';
+import { ALL_VIEWS, type ActiveView } from '../types/lineage';
 import type { GenderType, Person, PersonId } from '../types/pedigree';
 import { nowIso } from './date';
 import { mergeLegacyPersonIntoSlot, mergePersonWithTemplate } from './personPersist';
@@ -59,6 +59,7 @@ export type TemplateSlotIds = {
   spouseId: PersonId;
 };
 
+/** 시점별 고정 슬롯 id. 예: 나 보기 본인 = me_sib2, 그 자녀 = me_c2_0 */
 export function slotIdsForView(view: ActiveView): TemplateSlotIds {
   const p = VIEW_PREFIX[view];
   const siblings = [0, 1, 2, 3, 4].map(i => ({
@@ -275,6 +276,10 @@ function person(
   return { id, name, createdAt, gender, ...extra };
 }
 
+/**
+ * 시점(view)별 빈 족보 골격.
+ * 증조 노드는 만들지 않고 조부모에 fatherId/motherId 링크만 둔다(부모 추가로 채움).
+ */
 export function createViewTemplate(
   view: ActiveView,
   createdAt: string = nowIso(),
@@ -535,9 +540,10 @@ export function reconcileViewTemplate(
   return out;
 }
 
+/** 네 시점 모두 reconcile. 로드·마이그레이션·재배치 후 호출 */
 export function reconcileStore(store: import('../types/lineage').PedigreeStore): import('../types/lineage').PedigreeStore {
   const views = { ...store.views };
-  for (const view of ['self', 'paternal', 'maternal', 'spouse'] as ActiveView[]) {
+  for (const view of ALL_VIEWS) {
     if (views[view]) {
       views[view] = reconcileViewTemplate(view, views[view]);
     }
@@ -545,6 +551,7 @@ export function reconcileStore(store: import('../types/lineage').PedigreeStore):
   return { ...store, views };
 }
 
+/** 빈 v2 store. 로드 실패 복구용이 아니라 최초 생성용 */
 export function createDefaultStore(createdAt: string = nowIso()): import('../types/lineage').PedigreeStore {
   return {
     version: 2,

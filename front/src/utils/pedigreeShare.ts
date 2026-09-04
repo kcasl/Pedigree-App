@@ -4,14 +4,12 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_BASE_URL } from '../config/api';
-import type { PedigreeStore } from '../types/lineage';
-import type { ActiveView } from '../types/lineage';
+import { ALL_VIEWS, type ActiveView, type PedigreeStore } from '../types/lineage';
 import type { Person, PersonId } from '../types/pedigree';
 import { rebaseStoreAroundPerson, rearrangePedigreeStore } from './rebasePedigree';
 import { reconcileStore } from './standardTemplate';
 import { syncAllViews } from './viewSync';
 
-const ALL_VIEWS: ActiveView[] = ['self', 'paternal', 'maternal', 'spouse'];
 const SHARE_DEVICE_ID_KEY = 'pedigree.share.deviceId.v1';
 
 /** 기기당 고정 ID — 서버에서 이전 내보내기 정리에 사용 */
@@ -83,6 +81,7 @@ async function rewritePhotosInPeople(
   return out;
 }
 
+/** 로컬 사진을 공개 URL로 바꾼 store. 좌표는 포함하지 않는다 */
 export async function packageStoreForShare(store: PedigreeStore): Promise<PedigreeStore> {
   // 4개 뷰에 같은 사진이 중복되므로 URI당 1회만 업로드 (서버 OOM/MySQL 다운 방지)
   const uploadedByLocalUri = new Map<string, string>();
@@ -98,6 +97,7 @@ export async function packageStoreForShare(store: PedigreeStore): Promise<Pedigr
   };
 }
 
+/** 선택한 인물을 나로 재배치한 뒤 공개 키를 발급한다 */
 export async function exportPedigreeShare(params: {
   store: PedigreeStore;
   focalPersonId: PersonId;

@@ -1,9 +1,16 @@
 /**
- * 사용자 입력(사진·연락처 등) 유지 — 템플릿/동기화/마이그레이션 공통 규칙
+ * 사용자 입력(사진·연락처 등) 유지 — 템플릿/동기화/마이그레이션 공통 규칙.
+ *
+ * 병합 방향:
+ * - 템플릿 reconcile → 구조는 template, 사용자 필드는 existing 우선
+ * - 뷰 동기화 → source에 값이 있을 때만 target에 복사
+ * - 서버 pull → 사용자 필드는 local 우선, 부모 링크는 incoming으로 보강
+ *
+ * 금지: `{ ...existing, ...template }` 통째 덮어쓰기, 로드 실패 시 createDefaultStore() 교체.
  * @see .cursor/rules/persist-user-data.mdc
  */
 
-import type { ActiveView, PedigreeStore } from '../types/lineage';
+import { ALL_VIEWS, type PedigreeStore } from '../types/lineage';
 import type { GenderType, Person, PersonId } from '../types/pedigree';
 
 export const USER_OWNED_PERSON_FIELDS = [
@@ -14,8 +21,6 @@ export const USER_OWNED_PERSON_FIELDS = [
   'note',
   'gender',
 ] as const satisfies ReadonlyArray<keyof Person>;
-
-const ALL_VIEWS: ActiveView[] = ['self', 'paternal', 'maternal', 'spouse'];
 
 /** 템플릿 기본 이름이 아닌, 사용자가 입력한 이름인지 */
 export function hasUserEditedPersonName(
@@ -106,6 +111,7 @@ export function mergePersonPreferLocalUserData(local: Person, incoming: Person):
   };
 }
 
+/** 한 시점 people 맵 병합. 양쪽 id를 모두 남기고, 겹치면 local 사용자 필드 우선 */
 export function mergeViewPeoplePreferLocal(
   local: Record<PersonId, Person>,
   incoming: Record<PersonId, Person>,

@@ -1,3 +1,5 @@
+"""SQLAlchemy 모델 — 사용자, 족보 스냅샷, 공개 공유."""
+
 from datetime import datetime
 
 from sqlalchemy import DateTime, ForeignKey, String, Text, func
@@ -8,6 +10,7 @@ from .database import Base
 
 
 class User(Base):
+    """Google 로그인 사용자. google_sub가 외부 식별자."""
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
@@ -28,6 +31,7 @@ class User(Base):
 
 
 class PedigreeSnapshot(Base):
+    """사용자당 족보 JSON 1건. 좌표는 넣지 않고 인물·관계만 둔다."""
     __tablename__ = "pedigree_snapshots"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)

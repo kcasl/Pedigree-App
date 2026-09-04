@@ -1,3 +1,5 @@
+"""앱 설정. back/.env 를 절대경로로 읽어 cwd와 무관하게 동작한다."""
+
 from pathlib import Path
 from urllib.parse import quote_plus
 

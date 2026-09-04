@@ -1,8 +1,7 @@
 /**
- * Sample React Native App
- * https://github.com/facebook/react-native
- *
- * @format
+ * 앱 엔트리.
+ * 언어 선택 → Google/게스트 인증 → AuthenticatedApp.
+ * 족보 데이터는 여기서 다루지 않는다.
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';

@@ -1,3 +1,8 @@
+/**
+ * 로그인/게스트 이후 화면 라우터.
+ * 홈 ↔ 족보·연락처·검색·기념일·메모·설정. 하드웨어 백은 홈에서 두 번 눌러 종료.
+ */
+
 import React, { useEffect, useRef, useState } from 'react';
 import { BackHandler, StyleSheet, Text, View } from 'react-native';
 import { AnniversaryScreen } from './AnniversaryScreen';

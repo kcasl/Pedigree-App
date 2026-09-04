@@ -1,3 +1,5 @@
+"""Pedigree FastAPI — Google 인증, 족보 스냅샷, 공개 공유."""
+
 import base64
 import gzip
 import json
@@ -39,12 +41,14 @@ from .images import (
     delete_local_upload,
     save_compressed_photo,
 )
+from .models import User
 
 SHARE_KEY_ALPHABET = string.ascii_letters + string.digits
 SHARE_KEY_LENGTH = 10
 
 
 def generate_share_key(db: Session) -> str:
+    """충돌 없는 10자리 공개 공유 키를 할당한다."""
     for _ in range(20):
         key = "".join(secrets.choice(SHARE_KEY_ALPHABET) for _ in range(SHARE_KEY_LENGTH))
         if not get_shared_pedigree(db, key):
@@ -192,12 +196,34 @@ def get_identity_from_access_token(authorization: str | None) -> dict | None:
     return verify_google_access_token(token)
 
 
+def require_google_user(
+    google_sub: str,
+    authorization: str | None,
+    db: Session,
+) -> User:
+    """경로의 google_sub와 Bearer 토큰 주체가 같은 사용자를 반환한다."""
+    try:
+        identity = get_identity_from_access_token(authorization)
+    except ValueError:
+        raise HTTPException(status_code=401, detail="invalid access token")
+    if not identity:
+        raise HTTPException(status_code=401, detail="access token is required")
+    if identity.get("google_sub") != google_sub:
+        raise HTTPException(status_code=403, detail="forbidden")
+
+    user = get_user_by_google_sub(db, google_sub)
+    if not user:
+        raise HTTPException(status_code=404, detail="user not found")
+    return user
+
+
 @app.post("/v1/auth/google", response_model=UserResponse)
 def google_login(
     payload: GoogleLoginRequest,
     authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ) -> UserResponse:
+    """Bearer access token 우선, 없으면 id_token으로 사용자를 업서트한다."""
     identity = None
     try:
         identity = get_identity_from_access_token(authorization)
@@ -230,18 +256,8 @@ def get_pedigree(
     authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ) -> SnapshotResponse:
-    try:
-        identity = get_identity_from_access_token(authorization)
-    except ValueError:
-        raise HTTPException(status_code=401, detail="invalid access token")
-    if not identity:
-        raise HTTPException(status_code=401, detail="access token is required")
-    if identity.get("google_sub") != google_sub:
-        raise HTTPException(status_code=403, detail="forbidden")
-
-    user = get_user_by_google_sub(db, google_sub)
-    if not user:
-        raise HTTPException(status_code=404, detail="user not found")
+    """로그인 사용자의 족보 스냅샷. 없으면 빈 people_by_id."""
+    user = require_google_user(google_sub, authorization, db)
 
     snapshot = get_snapshot(db, user.id)
     return SnapshotResponse(
@@ -258,18 +274,8 @@ def put_pedigree(
     authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ) -> SnapshotResponse:
-    try:
-        identity = get_identity_from_access_token(authorization)
-    except ValueError:
-        raise HTTPException(status_code=401, detail="invalid access token")
-    if not identity:
-        raise HTTPException(status_code=401, detail="access token is required")
-    if identity.get("google_sub") != google_sub:
-        raise HTTPException(status_code=403, detail="forbidden")
-
-    user = get_user_by_google_sub(db, google_sub)
-    if not user:
-        raise HTTPException(status_code=404, detail="user not found")
+    """족보 전체 덮어쓰기. 로컬 병합은 클라이언트가 수행한다."""
+    user = require_google_user(google_sub, authorization, db)
 
     snapshot = upsert_snapshot(db, user.id, payload.people_by_id)
     return SnapshotResponse(
@@ -285,18 +291,7 @@ def remove_pedigree(
     authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ) -> dict[str, bool]:
-    try:
-        identity = get_identity_from_access_token(authorization)
-    except ValueError:
-        raise HTTPException(status_code=401, detail="invalid access token")
-    if not identity:
-        raise HTTPException(status_code=401, detail="access token is required")
-    if identity.get("google_sub") != google_sub:
-        raise HTTPException(status_code=403, detail="forbidden")
-
-    user = get_user_by_google_sub(db, google_sub)
-    if not user:
-        raise HTTPException(status_code=404, detail="user not found")
+    user = require_google_user(google_sub, authorization, db)
     deleted = delete_snapshot(db, user.id)
     return {"deleted": deleted}
 
@@ -308,18 +303,8 @@ def patch_pedigree(
     authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ) -> SnapshotResponse:
-    try:
-        identity = get_identity_from_access_token(authorization)
-    except ValueError:
-        raise HTTPException(status_code=401, detail="invalid access token")
-    if not identity:
-        raise HTTPException(status_code=401, detail="access token is required")
-    if identity.get("google_sub") != google_sub:
-        raise HTTPException(status_code=403, detail="forbidden")
-
-    user = get_user_by_google_sub(db, google_sub)
-    if not user:
-        raise HTTPException(status_code=404, detail="user not found")
+    """부분 갱신. compressed면 gzip+base64 payload_b64를 풀어 upserts/deletes로 쓴다."""
+    user = require_google_user(google_sub, authorization, db)
 
     upserts = payload.upserts
     deletes = payload.deletes
@@ -389,6 +374,7 @@ def get_pedigree_share(
     share_key: str,
     db: Session = Depends(get_db),
 ) -> ShareGetResponse:
+    """공개 키로 족보 조회 — 로그인 불필요."""
     row = get_shared_pedigree(db, share_key.strip())
     if not row:
         raise HTTPException(status_code=404, detail="invalid share key")
@@ -434,18 +420,7 @@ async def upload_photo(
     db: Session = Depends(get_db),
 ) -> dict[str, str]:
     """인물 사진 업로드. 640px WebP(q75, 실패 시 JPEG) 저장. previous_url 있으면 교체 삭제."""
-    try:
-        identity = get_identity_from_access_token(authorization)
-    except ValueError:
-        raise HTTPException(status_code=401, detail="invalid access token")
-    if not identity:
-        raise HTTPException(status_code=401, detail="access token is required")
-    if identity.get("google_sub") != google_sub:
-        raise HTTPException(status_code=403, detail="forbidden")
-
-    user = get_user_by_google_sub(db, google_sub)
-    if not user:
-        raise HTTPException(status_code=404, detail="user not found")
+    require_google_user(google_sub, authorization, db)
 
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="only image file is allowed")

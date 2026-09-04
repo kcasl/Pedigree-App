@@ -1,9 +1,16 @@
+/**
+ * 형제·자녀 정렬 및 슬롯 배치.
+ * 생년월일 우선, 없으면 호칭 힌트(큰형→형→누나→나→동생).
+ * 레이아웃은 연장자를 초점 왼쪽에 둔다.
+ */
+
 import type { ActiveView } from '../types/lineage';
 import type { Person, PersonId } from '../types/pedigree';
 import { SELF_SLOT_INDEX, slotIdsForView } from './standardTemplate';
 
 export type AgeRelation = 'older' | 'younger' | 'same' | 'unknown';
 
+/** 생년월일, 없으면 생성일. 호칭의 형/동생 비교용 */
 export function birthTimestamp(person?: Person): number | null {
   if (!person) return null;
   if (person.birthDate) {
@@ -17,6 +24,7 @@ export function birthTimestamp(person?: Person): number | null {
   return null;
 }
 
+/** 생년월일만. 값이 있는 쌍이 있어야 레이아웃 순서를 바꾼다 */
 export function birthDateTimestamp(person?: Person): number | null {
   if (!person?.birthDate) return null;
   const t = Date.parse(person.birthDate);
@@ -354,6 +362,10 @@ export function assignSiblingSlotIndices(
   return map;
 }
 
+/**
+ * 형제 줄에서 extra_L / extra_R 슬롯 id를 만든다.
+ * 0~4는 템플릿 sib 슬롯, 음수=왼쪽 extra, 5+=오른쪽 extra.
+ */
 export function siblingSlotBloodId(prefix: string, slotIndex: number): PersonId {
   if (slotIndex >= 0 && slotIndex <= 4) return `${prefix}_sib${slotIndex}`;
   if (slotIndex < 0) return `${prefix}_sib_extra_L${Math.abs(slotIndex)}`;

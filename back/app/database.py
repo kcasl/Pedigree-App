@@ -1,3 +1,5 @@
+"""MySQL 엔진·세션. 요청마다 get_db로 세션을 열고 닫는다."""
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 

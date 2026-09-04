@@ -1,3 +1,5 @@
+"""API 요청/응답 스키마. people_by_id·store는 프론트 PedigreeStore JSON."""
+
 from datetime import datetime
 from typing import Any
 

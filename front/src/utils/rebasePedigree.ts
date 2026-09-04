@@ -7,7 +7,7 @@
  * 증조 위에 한 세대가 더 있으면 칸을 올리고, 손자 아래가 있으면 내린다.
  */
 
-import type { ActiveView, PedigreeStore } from '../types/lineage';
+import { ALL_VIEWS, type ActiveView, type PedigreeStore } from '../types/lineage';
 import type { Person, PersonId } from '../types/pedigree';
 import {
   assignSiblingSlotIndices,
@@ -28,7 +28,6 @@ type ViewPrefix = 'me' | 'pat' | 'mat' | 'spo';
 
 type FocalRole = 'blood' | 'inlaw';
 
-const ALL_VIEWS: ActiveView[] = ['self', 'paternal', 'maternal', 'spouse'];
 const VIEW_RANK: Record<ActiveView, number> = {
   self: 0,
   paternal: 1,
@@ -281,6 +280,7 @@ export function rearrangePedigreeStore(store: PedigreeStore): PedigreeStore {
   return reconcileStore({ ...store, views });
 }
 
+/** 동일 인물이 여러 뷰에 있을 때 사용자 필드를 합친다. a 우선 */
 function mergePersonUnion(a: Person, b: Person): Person {
   return {
     ...a,

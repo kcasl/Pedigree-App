@@ -1,3 +1,4 @@
+/** 기기 시각 ISO. 인물 createdAt 기본값 */
 export function nowIso(): string {
   return new Date().toISOString();
 }

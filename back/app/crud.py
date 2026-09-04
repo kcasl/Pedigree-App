@@ -1,3 +1,5 @@
+"""Google 인증, 족보 스냅샷, 공개 공유 CRUD."""
+
 from google.auth.transport import requests
 from google.oauth2 import id_token
 from copy import deepcopy
@@ -12,6 +14,7 @@ from .schemas import GoogleLoginRequest
 
 
 def verify_google_identity(payload: GoogleLoginRequest) -> dict:
+    """id_token 검증. 클라이언트 ID가 없으면 로컬 개발용 payload 필드를 그대로 쓴다."""
     if payload.id_token and settings.google_client_id:
         token_info = id_token.verify_oauth2_token(
             payload.id_token,
@@ -35,6 +38,7 @@ def verify_google_identity(payload: GoogleLoginRequest) -> dict:
 
 
 def verify_google_access_token(access_token: str) -> dict:
+    """Google userinfo로 access token 주체를 확인한다."""
     req = request.Request(
         "https://www.googleapis.com/oauth2/v3/userinfo",
         headers={"Authorization": f"Bearer {access_token}"},
@@ -55,6 +59,7 @@ def verify_google_access_token(access_token: str) -> dict:
 
 
 def upsert_user(db: Session, identity: dict) -> User:
+    """google_sub 기준 사용자 생성/갱신."""
     user = db.query(User).filter(User.google_sub == identity["google_sub"]).first()
     if user:
         user.email = identity["email"]
@@ -85,6 +90,7 @@ def get_snapshot(db: Session, user_id: int) -> PedigreeSnapshot | None:
 
 
 def upsert_snapshot(db: Session, user_id: int, people_by_id: dict) -> PedigreeSnapshot:
+    """사용자당 스냅샷 1건. 교체 후 더 이상 안 쓰는 업로드 사진을 지운다."""
     snapshot = get_snapshot(db, user_id)
     if snapshot:
         old_people = (
@@ -120,6 +126,7 @@ def apply_snapshot_patch(
     upserts: dict,
     deletes: list[str],
 ) -> PedigreeSnapshot:
+    """부분 패치 후 전체 스냅샷으로 저장."""
     snapshot = get_snapshot(db, user_id)
     if snapshot:
         current = deepcopy(snapshot.people_json) if isinstance(snapshot.people_json, dict) else {}
@@ -194,6 +201,7 @@ def create_shared_pedigree(
     store_json: dict,
     device_id: str | None = None,
 ) -> SharedPedigree:
+    """공개 공유 행 생성. 같은 device_id의 이전 공유는 지운다."""
     trimmed_device = (device_id or "").strip() or None
     if trimmed_device:
         delete_shared_pedigrees_for_device(

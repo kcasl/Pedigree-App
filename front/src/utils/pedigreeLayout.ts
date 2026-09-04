@@ -784,6 +784,10 @@ function normalizeCanvas(
 
 // ── entry ───────────────────────────────────────────────────────────
 
+/**
+ * 관계 기반 자동 배치 엔트리.
+ * 아래(자손) 폭을 먼저 계산한 뒤 위 세대를 자식 무리 중앙에 둔다.
+ */
 export function buildPedigreeLayout(
   people: Record<PersonId, Person>,
   opts: BuildLayoutOptions,

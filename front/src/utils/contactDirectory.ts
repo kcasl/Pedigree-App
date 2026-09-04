@@ -1,4 +1,8 @@
-import type { ActiveView, PedigreeStore } from '../types/lineage';
+/**
+ * 연락처 목록 — 전화번호가 있는 인물만, 뷰를 합쳐 번호 기준 중복 제거.
+ */
+
+import { ALL_VIEWS, type ActiveView, type PedigreeStore } from '../types/lineage';
 import { ACTIVE_VIEW_LABEL } from '../types/lineage';
 import type { PersonId } from '../types/pedigree';
 import { buildViewKinshipLabels } from './viewSync';
@@ -66,12 +70,11 @@ function primaryLineageForPerson(
 }
 
 export function buildContactDirectoryEntries(store: PedigreeStore): ContactDirectoryEntry[] {
-  const views: ActiveView[] = ['self', 'paternal', 'maternal', 'spouse'];
   const selfSlots = slotIdsForView('self');
   const selfPeople = store.views.self;
   const byPhone = new Map<string, PhoneAccumulator>();
 
-  for (const view of views) {
+  for (const view of ALL_VIEWS) {
     const people = store.views[view];
     const labels = buildViewKinshipLabels(view, people, selfPeople);
 

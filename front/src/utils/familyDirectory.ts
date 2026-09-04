@@ -1,4 +1,9 @@
-import type { ActiveView, PedigreeStore } from '../types/lineage';
+/**
+ * 가족 검색용 디렉터리.
+ * 전화·이름+생년월일로 동일 인물을 합치고, 나 보기 항목을 우선한다.
+ */
+
+import { ALL_VIEWS, type ActiveView, type PedigreeStore } from '../types/lineage';
 import { ACTIVE_VIEW_LABEL } from '../types/lineage';
 import type { Person } from '../types/pedigree';
 import { kinshipLabelToDisplayName } from './kinship';
@@ -14,8 +19,6 @@ export type FamilyDirectoryEntry = {
   viewLabel: string;
   kinshipLabel: string;
 };
-
-const VIEW_ORDER: ActiveView[] = ['self', 'paternal', 'maternal', 'spouse'];
 
 function identityKey(person: Person, view: ActiveView): string {
   const phone = normalizePhoneDigits(person.phone);
@@ -43,7 +46,7 @@ export function collectFamilyDirectory(
   const selfPeople = store.views.self;
   const byKey = new Map<string, FamilyDirectoryEntry>();
 
-  for (const view of VIEW_ORDER) {
+  for (const view of ALL_VIEWS) {
     const people = store.views[view];
     if (!people) continue;
     const labels = buildViewKinshipLabels(view, people, selfPeople);

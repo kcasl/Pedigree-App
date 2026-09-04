@@ -1,3 +1,7 @@
+/**
+ * 족보 노드 래퍼. 카드 렌더만 담당하고, 드래그 오프셋은 PedigreeScreen이 적용한다.
+ */
+
 import React from 'react';
 import { View, ViewStyle } from 'react-native';
 import { PersonNodeCard } from './PersonNodeCard';

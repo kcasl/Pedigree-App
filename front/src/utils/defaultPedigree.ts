@@ -1,5 +1,6 @@
 /**
- * 기본 족보 템플릿 — 참고 가계도 포맷
+ * 기본 족보 템플릿 — 참고 가계도 포맷 (v1 flat people).
+ * 현재 앱은 standardTemplate의 슬롯 store를 쓴다. 이 모듈은 마이그레이션 호환용.
  *
  *   [친할아버지]──[친할머니]     [외할아버지]──[외할머니]
  *            \                        /
@@ -25,6 +26,7 @@ export const DEFAULT_PEDIGREE_IDS = {
   child1: 'child1',
 } as const;
 
+/** v1 최소 가계도 people. 좌표 없이 관계만 */
 export function createDefaultPedigreePeople(
   createdAt: string = nowIso(),
 ): Record<PersonId, Person> {

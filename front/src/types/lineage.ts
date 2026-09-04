@@ -4,6 +4,13 @@ import type { Person, PersonId } from './pedigree';
 export type LineageView = 'paternal' | 'maternal' | 'spouse';
 export type ActiveView = 'self' | LineageView;
 
+/** 네 시점. 순서는 나 → 친가 → 외가 → 배우자 */
+export const ALL_VIEWS: ActiveView[] = ['self', 'paternal', 'maternal', 'spouse'];
+
+/**
+ * 앱 전체 족보 상태.
+ * 좌표는 저장하지 않고 인물·관계만 둔다. 화면은 Layout Engine이 매번 재계산한다.
+ */
 export type PedigreeStore = {
   version: 2;
   activeView: ActiveView;

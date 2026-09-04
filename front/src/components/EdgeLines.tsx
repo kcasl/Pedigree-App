@@ -394,6 +394,7 @@ function drawSpouseOnly(
   });
 }
 
+/** 배치된 노드와 부모-자식/부부 쌍으로 SVG 연결선을 그린다 */
 export function EdgeLines({
   edges,
   nodeById,

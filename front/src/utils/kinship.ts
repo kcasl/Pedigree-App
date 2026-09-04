@@ -1,3 +1,12 @@
+/**
+ * Relationship Engine — 나(self) 기준 최단 경로 호칭.
+ *
+ * 관계 그래프 토큰:
+ *   F/M 부모, S/D/C 자녀(남/여/미상), H/W/P 배우자
+ * BFS로 최단 코드를 구한 뒤 labelFromCode + PRIORITY로 확정한다.
+ * UI는 이 모듈을 호출만 하고 호칭을 직접 계산하지 않는다.
+ */
+
 import type { Person, PersonId } from '../types/pedigree';
 import { compareAgeByBirthDate, compareAgeToSelf } from './birthOrder';
 import { siblingSpouseLabel } from './siblingKinship';
@@ -26,6 +35,7 @@ function addEdge(adj: Record<PersonId, Neighbor[]>, from: PersonId, to: PersonId
   }
 }
 
+/** fatherId/motherId/spouseId → 양방향 토큰 그래프 */
 function buildAdjacency(people: Record<PersonId, Person>): Record<PersonId, Neighbor[]> {
   const adj: Record<PersonId, Neighbor[]> = {};
   for (const p of Object.values(people)) {
@@ -45,6 +55,7 @@ function buildAdjacency(people: Record<PersonId, Person>): Record<PersonId, Neig
   return adj;
 }
 
+/** start→target 최단 관계 코드(예: FF = 친조부). 동길이 경로는 모두 반환 */
 function shortestCodes(
   adj: Record<PersonId, Neighbor[]>,
   start: PersonId,
@@ -134,6 +145,7 @@ function paternalUncleLabel(
   return '삼촌';
 }
 
+/** 관계 코드 → 한국어 호칭. 나이·성별이 필요한 항목만 people을 본다 */
 function labelFromCode(
   code: string,
   self: Person,
@@ -241,6 +253,7 @@ function labelFromCode(
   return '친족';
 }
 
+/** 여러 최단 경로가 있을 때 직계·배우자 > 방계 > 인척 순 */
 const PRIORITY: Record<string, number> = {
   나: 100,
   부: 95,
@@ -331,6 +344,7 @@ function bestLabel(
   return selected;
 }
 
+/** 부모 쌍이 같으면 친형제. 한쪽만 같으면 해당하지 않는다 */
 export function isSiblingBlood(self: Person, other: Person): boolean {
   if (!self.fatherId || !self.motherId) return false;
   return (
@@ -459,6 +473,7 @@ export function lineageGroupsForPerson(
   return Array.from(groups);
 }
 
+/** 모든 인물에 대해 selfId 시점 호칭. 인척은 배우자 혈족 경로를 우선 */
 export function buildKinshipLabels(
   peopleById: Record<PersonId, Person>,
   selfId: PersonId,
