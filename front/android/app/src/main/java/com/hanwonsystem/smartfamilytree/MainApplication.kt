@@ -1,4 +1,4 @@
-package com.pedigree_app
+package com.hanwonsystem.smartfamilytree
 
 import android.app.Application
 import com.facebook.react.PackageList

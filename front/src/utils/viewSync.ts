@@ -17,13 +17,14 @@ import {
   buildChildOrdinalLabels,
   collectCoupleChildIds,
   isChildOfCouple,
+  compareAgeByBirthDate,
   assignSiblingSlotIndices,
   siblingSlotBloodId,
   orderedSiblingBloodIds,
 } from './birthOrder';
 import { buildKinshipLabels, isSiblingBlood } from './kinship';
 import { buildSiblingKinshipLabels, siblingAgeRelation, siblingSpouseLabel, spouseSideSiblingLabel } from './siblingKinship';
-import { SELF_SLOT_INDEX, natalParentSlotIds, slotIdsForView } from './standardTemplate';
+import { SELF_SLOT_INDEX, VIEW_PREFIX, natalParentSlotIds, slotIdsForView } from './standardTemplate';
 import { nowIso } from './date';
 
 type LineageFocalView = 'paternal' | 'maternal';
@@ -1148,24 +1149,39 @@ export type SiblingAddResolution = {
   target: SiblingAddTarget;
 };
 
-/** 친가/외가 — 형제 추가 허용 노드 (조부모·부모 줄만, 형제 줄은 제외) */
+/** 친가/외가 — 조부모 줄 + 형제 줄(아버지 세대) + 나 자녀 줄 */
 export function canAddSiblingFromNode(view: ActiveView, ofId: PersonId): boolean {
   if (view === 'self' || view === 'spouse') return true;
   if (view !== 'paternal' && view !== 'maternal') return true;
   const slots = slotIdsForView(view);
-  const allowed = new Set<PersonId>([
-    slots.father,
-    slots.mother,
-    slots.gf,
-    slots.gm,
-    slots.mgf,
-    slots.mgm,
-    slots.ggf,
-    slots.ggm,
-    slots.mggf,
-    slots.mggm,
-  ]);
-  return allowed.has(ofId);
+  if (
+    ofId === slots.father ||
+    ofId === slots.mother ||
+    ofId === slots.gf ||
+    ofId === slots.gm ||
+    ofId === slots.mgf ||
+    ofId === slots.mgm ||
+    ofId === slots.ggf ||
+    ofId === slots.ggm ||
+    ofId === slots.mggf ||
+    ofId === slots.mggm
+  ) {
+    return true;
+  }
+  if (slots.siblings.some(s => s.blood === ofId)) return true;
+  if (/_sib_extra_/i.test(ofId)) return true;
+  const prefix = VIEW_PREFIX[view];
+  return new RegExp(`^${prefix}_c${SELF_SLOT_INDEX}_`).test(ofId);
+}
+
+function isSiblingRowBlood(
+  ofId: PersonId,
+  person: Person,
+  slots: ReturnType<typeof slotIdsForView>,
+): boolean {
+  if (slots.siblings.some(s => s.blood === ofId)) return true;
+  if (/_sib_extra_/i.test(ofId)) return true;
+  return person.fatherId === slots.father && person.motherId === slots.mother;
 }
 
 export type ParentAddResolution =
@@ -1267,8 +1283,8 @@ export function resolveParentAdd(
 
 /**
  * 형제 추가 시 부모·대상 줄 결정.
- * - 부모 줄 칭할아버지·칭할머니: 각각 친형제 → 왼/오른쪽
- * - 조부모·외조부모: 각 카드의 친형제 → 해당 조부모 옆(좌/우)
+ * - 형제 줄(나/아버지 세대): 같은 부모 자녀 → 템플릿 형제 슬롯
+ * - 조부모 줄: 옆 가지 친형제
  */
 export function resolveSiblingAdd(
   view: ActiveView,
@@ -1279,35 +1295,34 @@ export function resolveSiblingAdd(
   const person = people[ofId];
   if (!person) return null;
 
-  if (view === 'paternal' || view === 'maternal') {
-    if (ofId === slots.father || ofId === slots.mother) {
-      if (!person.fatherId || !person.motherId) return null;
-      return {
-        fatherId: person.fatherId,
-        motherId: person.motherId,
-        target: 'blood',
-      };
-    }
-    if (
-      ofId === slots.gf ||
-      ofId === slots.gm ||
-      ofId === slots.mgf ||
-      ofId === slots.mgm ||
-      ofId === slots.ggf ||
-      ofId === slots.ggm ||
-      ofId === slots.mggf ||
-      ofId === slots.mggm
-    ) {
-      if (!person.fatherId || !person.motherId) return null;
-      return {
-        fatherId: person.fatherId,
-        motherId: person.motherId,
-        target: 'blood',
-      };
-    }
-    return null;
+  if (isSiblingRowBlood(ofId, person, slots)) {
+    if (!person.fatherId && !person.motherId) return null;
+    return {
+      fatherId: person.fatherId,
+      motherId: person.motherId,
+      target: 'couple_child',
+    };
   }
 
+  if (view === 'paternal' || view === 'maternal') {
+    const ancestors = new Set<PersonId>([
+      slots.father,
+      slots.mother,
+      slots.gf,
+      slots.gm,
+      slots.mgf,
+      slots.mgm,
+      slots.ggf,
+      slots.ggm,
+      slots.mggf,
+      slots.mggm,
+    ]);
+    if (!ancestors.has(ofId) && !new RegExp(`^${VIEW_PREFIX[view]}_c`).test(ofId)) {
+      return null;
+    }
+  }
+
+  if (!person.fatherId && !person.motherId) return null;
   return {
     fatherId: person.fatherId,
     motherId: person.motherId,
@@ -1351,6 +1366,100 @@ export function nextEmptySiblingSlotId(
     if (id && !people[id]) return id;
   }
   return null;
+}
+
+function siblingCoupleSlotIndex(
+  view: ActiveView,
+  fatherId?: PersonId,
+  motherId?: PersonId,
+): number {
+  const slots = slotIdsForView(view);
+  if (!fatherId && !motherId) return -1;
+  return slots.siblings.findIndex(s => {
+    const bloodHit = s.blood === fatherId || s.blood === motherId;
+    const spouseHit = s.spouse === fatherId || s.spouse === motherId;
+    return bloodHit || spouseHit;
+  });
+}
+
+function nextExtraSiblingId(
+  view: ActiveView,
+  people: Record<PersonId, Person>,
+  incoming: Person,
+): PersonId {
+  const prefix = VIEW_PREFIX[view];
+  const slots = slotIdsForView(view);
+  const focal = people[slots.selfId];
+  const byDate = focal ? compareAgeByBirthDate(focal, incoming) : 'unknown';
+  const younger = byDate !== 'older';
+  for (let n = 1; n < 40; n += 1) {
+    const slotIndex = younger ? 4 + n : -n;
+    const id = siblingSlotBloodId(prefix, slotIndex);
+    if (!people[id]) return id;
+  }
+  return incoming.id;
+}
+
+/** 형제 추가 시 빈 슬롯 → extra_L/R → 해당 부부 자녀 칸 순 */
+export function allocateSiblingId(
+  view: ActiveView,
+  people: Record<PersonId, Person>,
+  resolution: SiblingAddResolution,
+  incoming: Person,
+): PersonId {
+  const empty = nextEmptySiblingSlotId(view, people, resolution);
+  if (empty) return empty;
+
+  if (resolution.target === 'couple_child') {
+    return nextExtraSiblingId(view, people, incoming);
+  }
+
+  const childSlot = nextChildSlotId(view, people, resolution.fatherId, resolution.motherId);
+  if (childSlot) return childSlot;
+  return incoming.id;
+}
+
+/** 부부 아래 빈 자녀 슬롯(cN_0, cN_1, cN_2…) */
+export function nextChildSlotId(
+  view: ActiveView,
+  people: Record<PersonId, Person>,
+  bloodOrParentId?: PersonId,
+  spouseId?: PersonId,
+): PersonId | null {
+  if (!bloodOrParentId) return null;
+  const prefix = VIEW_PREFIX[view];
+  const slots = slotIdsForView(view);
+  const si = siblingCoupleSlotIndex(view, bloodOrParentId, spouseId);
+  if (si < 0) return null;
+  for (const cid of slots.children[si] ?? []) {
+    if (!people[cid]) return cid;
+  }
+  for (let n = 2; n < 40; n += 1) {
+    const id = `${prefix}_c${si}_${n}`;
+    if (!people[id]) return id;
+  }
+  return null;
+}
+
+/** 자녀 추가 — 부모 부부의 빈 자녀 칸을 우선 사용 */
+export function allocateChildId(
+  view: ActiveView,
+  people: Record<PersonId, Person>,
+  parentId: PersonId,
+  incoming: Person,
+): PersonId {
+  const parent = people[parentId];
+  if (!parent) return incoming.id;
+  const spouseId =
+    parent.spouseId && people[parent.spouseId] ? parent.spouseId : undefined;
+  const slotId = nextChildSlotId(view, people, parentId, spouseId);
+  if (slotId) return slotId;
+  const prefix = VIEW_PREFIX[view];
+  const index = collectCoupleChildIds(people, parentId, spouseId).filter(
+    id => id !== incoming.id,
+  ).length;
+  const extra = `${prefix}_c_extra_${parentId}_${index}`;
+  return people[extra] && extra !== incoming.id ? incoming.id : extra;
 }
 
 function getFocalChildBloodIds(

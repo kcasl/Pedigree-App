@@ -2,25 +2,25 @@ import React, { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { AppCredits } from '../components/AppCredits';
 import { useScreenInsets } from '../components/ScreenHeader';
-import { DEFAULT_LOCALE, LOCALES, LOCALE_NATIVE_LABEL, useI18n, type Locale } from '../i18n';
+import { LOCALES, LOCALE_NATIVE_LABEL, t, useI18n, type Locale } from '../i18n';
 import { ui } from '../theme/ui';
 
+/**
+ * 첫 실행 언어 선택.
+ * 선택지는 앱에 세팅된 LOCALES(각 언어 원어 표기).
+ * 안내 문구는 아직 기본 언어가 없으므로 항상 영어.
+ */
 export function LanguageSelectScreen() {
-  const { t, locale, previewLocale, confirmLocale } = useI18n();
+  const { confirmLocale } = useI18n();
   const { topInset, bottomInset } = useScreenInsets();
-  const [picked, setPicked] = useState<Locale>(locale || DEFAULT_LOCALE);
-
-  const select = (code: Locale) => {
-    setPicked(code);
-    previewLocale(code);
-  };
+  const [picked, setPicked] = useState<Locale>('en');
 
   return (
     <View style={[styles.safe, { paddingTop: topInset + 28, paddingBottom: bottomInset + 24 }]}>
       <View style={styles.body}>
         <Text style={styles.kicker}>PEDIGREE</Text>
-        <Text style={styles.title}>{t('languageSelect.title')}</Text>
-        <Text style={styles.subtitle}>{t('languageSelect.subtitle')}</Text>
+        <Text style={styles.title}>{t('languageSelect.title', undefined, 'en')}</Text>
+        <Text style={styles.subtitle}>{t('languageSelect.subtitle', undefined, 'en')}</Text>
         <View style={styles.rule} />
 
         <View style={styles.list}>
@@ -29,7 +29,7 @@ export function LanguageSelectScreen() {
             return (
               <Pressable
                 key={code}
-                onPress={() => select(code)}
+                onPress={() => setPicked(code)}
                 style={({ pressed }) => [
                   styles.chip,
                   active && styles.chipActive,
@@ -50,7 +50,7 @@ export function LanguageSelectScreen() {
           }}
           style={({ pressed }) => [styles.continueBtn, pressed && styles.pressed]}
         >
-          <Text style={styles.continueText}>{t('languageSelect.continue')}</Text>
+          <Text style={styles.continueText}>{t('languageSelect.continue', undefined, 'en')}</Text>
         </Pressable>
       </View>
       <AppCredits compact />

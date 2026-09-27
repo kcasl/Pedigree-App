@@ -56,9 +56,12 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
     void loadAppPrefs()
       .then(prefs => {
         if (!mounted) return;
-        setActiveLocale(prefs.locale);
-        setLocaleState(prefs.locale);
-        setNeedsLocalePick(!prefs.localeChosen);
+        const mustPick = !prefs.localeChosen;
+        setNeedsLocalePick(mustPick);
+        // 첫 실행 선택 화면은 영어 안내. 확정 전에는 한국어 기본값을 씌우지 않는다.
+        const nextLocale = mustPick ? 'en' : prefs.locale;
+        setActiveLocale(nextLocale);
+        setLocaleState(nextLocale);
       })
       .finally(() => {
         if (mounted) setReady(true);

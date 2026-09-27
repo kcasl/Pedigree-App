@@ -8,9 +8,16 @@ describe('i18n', () => {
     setActiveLocale('ko');
   });
 
-  it('defaults to Korean', () => {
-    expect(t('settings.title')).toBe('설정');
-    expect(t('home.tile.pedigree')).toBe('가족 계보');
+  it('uses English copy for the first-run language picker', () => {
+    expect(t('languageSelect.title', undefined, 'en')).toBe('Choose your language');
+    expect(t('languageSelect.subtitle', undefined, 'en')).toBe(
+      'Please select a default language',
+    );
+    expect(t('languageSelect.continue', undefined, 'en')).toBe('Continue');
+  });
+
+  it('lists the four configured locales', () => {
+    expect(LOCALES).toEqual(['ko', 'en', 'ja', 'zh']);
   });
 
   it('falls back to Korean when a locale table is missing a key at runtime', () => {

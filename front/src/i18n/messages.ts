@@ -346,9 +346,9 @@ export const en = dict({
   'home.tile.memos': 'Memos',
   'home.tile.settings': 'Settings',
   'home.exitHint': 'Press back again to exit',
-  'languageSelect.title': 'Language',
-  'languageSelect.subtitle': 'Choose a language',
-  'languageSelect.continue': 'Get started',
+  'languageSelect.title': 'Choose your language',
+  'languageSelect.subtitle': 'Please select a default language',
+  'languageSelect.continue': 'Continue',
 
   'settings.title': 'Settings',
   'settings.subtitle': 'Account · pedigree · app',

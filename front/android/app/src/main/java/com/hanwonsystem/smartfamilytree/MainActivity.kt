@@ -1,4 +1,4 @@
-package com.pedigree_app
+package com.hanwonsystem.smartfamilytree
 
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate

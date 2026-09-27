@@ -16,6 +16,7 @@ import type { Person } from '../types/pedigree';
 import { ui } from '../theme/ui';
 import { scaleSize } from '../theme/responsive';
 import { PERSON_NODE_METRICS, STANDARD_LAYOUT_DEFAULTS } from '../utils/standardLayout';
+import { fitNodeFontSize } from '../utils/fitNodeText';
 import { internationalAge } from '../utils/date';
 import { resolveNodeDisplayName } from '../utils/standardTemplate';
 import { formatPhoneDisplay } from '../utils/phone';
@@ -84,6 +85,8 @@ export function PersonNodeCard({
 }: Props) {
   const { t, displayKinship, displayOrdinal } = useI18n();
   const today = referenceDate ?? new Date();
+  const kinshipLabel = displayKinship(label);
+  const ordinalText = ordinalLabel ? displayOrdinal(ordinalLabel) : '';
   const personName = person
     ? displayKinship(resolveNodeDisplayName(activeView, person.id, person.name))
     : t('pedigree.addShort');
@@ -109,9 +112,13 @@ export function PersonNodeCard({
       },
       header: { gap: rs(6), minHeight: rs(m.headerHeight) },
       badge: {
-        fontSize: rs(12),
+        fontSize: fitNodeFontSize(kinshipLabel, rs(12), {
+          maxUnits: ordinalText ? 5.2 : 6.5,
+          minSize: rs(8),
+        }),
         paddingHorizontal: rs(8),
         paddingVertical: rs(4),
+        maxWidth: ordinalText ? ('72%' as const) : ('100%' as const),
       },
       ordinalBadge: {
         fontSize: rs(11),
@@ -154,11 +161,19 @@ export function PersonNodeCard({
         borderBottomRightRadius: rs(10),
       },
       avatarFallbackText: { fontSize: rs(24) },
-      name: {
-        fontSize: rs(16),
-        lineHeight: rs(m.nameLineHeight),
-        minHeight: rs(m.nameLineHeight * m.nameLines),
-      },
+      name: (() => {
+        const fontSize = fitNodeFontSize(personName, rs(16), {
+          maxUnits: 11,
+          minSize: rs(11),
+        });
+        const nameBlock = rs(m.nameLineHeight * m.nameLines);
+        return {
+          fontSize,
+          lineHeight: Math.max(rs(13), Math.round(fontSize * 1.18)),
+          minHeight: nameBlock,
+          maxHeight: nameBlock,
+        };
+      })(),
       age: {
         fontSize: rs(12),
         lineHeight: rs(m.ageLineHeight),
@@ -166,7 +181,7 @@ export function PersonNodeCard({
       },
       sub: { fontSize: rs(12), lineHeight: rs(m.phoneLineHeight) },
     }),
-    [cardScale, height],
+    [cardScale, height, kinshipLabel, ordinalText, personName],
   );
 
   return (
@@ -184,16 +199,29 @@ export function PersonNodeCard({
         highlighted && styles.highlighted,
         pressed && styles.pressed,
         !person && styles.placeholder,
+        styles.clip,
         style,
       ]}
     >
       <View style={[styles.header, scaled.header]}>
-        <Text {...NODE_TEXT} style={[styles.badge, scaled.badge]}>
-          {displayKinship(label)}
+        <Text
+          {...NODE_TEXT}
+          style={[styles.badge, scaled.badge]}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.62}
+        >
+          {kinshipLabel}
         </Text>
-        {ordinalLabel ? (
-          <Text {...NODE_TEXT} style={[styles.ordinalBadge, scaled.ordinalBadge]}>
-            {displayOrdinal(ordinalLabel)}
+        {ordinalText ? (
+          <Text
+            {...NODE_TEXT}
+            style={[styles.ordinalBadge, scaled.ordinalBadge]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.75}
+          >
+            {ordinalText}
           </Text>
         ) : null}
       </View>
@@ -223,7 +251,13 @@ export function PersonNodeCard({
         )}
 
         <View style={[styles.textBlock, scaled.textBlock]}>
-          <Text {...NODE_TEXT} style={[styles.name, scaled.name]} numberOfLines={2}>
+          <Text
+            {...NODE_TEXT}
+            style={[styles.name, scaled.name]}
+            numberOfLines={2}
+            adjustsFontSizeToFit
+            minimumFontScale={0.65}
+          >
             {personName}
           </Text>
           {person && personAge != null ? (
@@ -260,6 +294,9 @@ const styles = StyleSheet.create({
     borderColor: '#2e7d32',
     backgroundColor: '#f1f8e9',
   },
+  clip: {
+    overflow: 'hidden',
+  },
   placeholder: {
     opacity: 0.92,
     borderStyle: 'dashed',
@@ -268,10 +305,13 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    alignItems: 'center',
+    width: '100%',
     gap: 6,
   },
   badge: {
+    flexGrow: 1,
+    flexShrink: 1,
     fontSize: 12,
     color: ui.color.label,
     backgroundColor: ui.color.badgeBg,
@@ -294,6 +334,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     overflow: 'hidden',
     fontWeight: ui.weight.title,
+    flexShrink: 0,
   },
   content: {
     width: '100%',

@@ -52,7 +52,8 @@ import {
   buildViewKinshipLabels,
   buildViewOrdinalLabels,
   canAddSiblingFromNode,
-  nextEmptySiblingSlotId,
+  allocateSiblingId,
+  allocateChildId,
   resolveParentAdd,
   resolveSiblingAdd,
   syncAllViews,
@@ -196,20 +197,19 @@ export function PedigreeScreen({
       syncText: { marginTop: rs(2), fontSize: rs(11) },
       loadingWrap: { gap: rs(10) },
       loadingText: { fontSize: rs(14) },
-      zoomBox: { right: rs(16), bottom: rs(18), gap: rs(10) },
+      zoomBox: { right: rs(16), top: rs(16), gap: rs(10) },
       zoomBtn: {
         width: rs(44),
         height: rs(44),
         borderRadius: rs(22),
       },
       zoomCenterBtn: {
-        width: rs(56),
+        width: rs(44),
         height: rs(44),
-        paddingHorizontal: rs(8),
         borderRadius: rs(22),
       },
       zoomText: { fontSize: rs(20), marginTop: rs(-2) },
-      zoomCenterText: { fontSize: rs(12), marginTop: 0 },
+      zoomCenterText: { fontSize: rs(20), marginTop: rs(-2) },
       sheet: {
         borderTopLeftRadius: rs(20),
         borderTopRightRadius: rs(20),
@@ -958,8 +958,10 @@ export function PedigreeScreen({
       } else if (action.kind === 'sibling') {
         const resolved = resolveSiblingAdd(activeView, next, action.ofId);
         if (!resolved) return prev;
-        const slotId = nextEmptySiblingSlotId(activeView, next, resolved);
-        const finalId = slotId ?? person.id;
+        const finalId = allocateSiblingId(activeView, next, resolved, person);
+        if (finalId !== person.id) {
+          delete next[person.id];
+        }
         next[finalId] = {
           ...person,
           id: finalId,
@@ -971,8 +973,13 @@ export function PedigreeScreen({
         if (parent) {
           const spouseId = parent.spouseId;
           const inferredRole = inferParentRole(next, action.parentId, spouseId);
-          next[person.id] = {
-            ...next[person.id],
+          const finalId = allocateChildId(activeView, next, action.parentId, person);
+          if (finalId !== person.id) {
+            delete next[person.id];
+          }
+          next[finalId] = {
+            ...person,
+            id: finalId,
             ...(inferredRole === 'father'
               ? { fatherId: action.parentId }
               : { motherId: action.parentId }),
@@ -1336,6 +1343,22 @@ export function PedigreeScreen({
 
           </Animated.View>
         </GestureDetector>
+
+        {/* 줌 컨트롤: + / − / C(중앙 복귀, 언어 고정). 헤더에 가리지 않도록 스테이지 상단 우측에 고정 */}
+        <View style={[styles.zoomBox, scaledUi.zoomBox]}>
+          <Pressable style={[styles.zoomBtn, scaledUi.zoomBtn]} onPress={() => zoomBy(1.2)}>
+            <Text style={[styles.zoomText, scaledUi.zoomText]}>+</Text>
+          </Pressable>
+          <Pressable style={[styles.zoomBtn, scaledUi.zoomBtn]} onPress={() => zoomBy(1 / 1.2)}>
+            <Text style={[styles.zoomText, scaledUi.zoomText]}>−</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.zoomBtn, styles.zoomCenterBtn, scaledUi.zoomCenterBtn]}
+            onPress={recenterCurrentView}
+          >
+            <Text style={[styles.zoomCenterText, scaledUi.zoomCenterText]}>C</Text>
+          </Pressable>
+        </View>
       </View>
 
       {ENABLE_PEDIGREE_SHARE && exportBusy ? (
@@ -1344,22 +1367,6 @@ export function PedigreeScreen({
           <Text style={styles.shareBusyText}>{t('pedigree.exportingBusy')}</Text>
         </View>
       ) : null}
-
-      {/* 줌 컨트롤: + / − / 센터(중앙 복귀) */}
-      <View style={[styles.zoomBox, scaledUi.zoomBox]}>
-        <Pressable style={[styles.zoomBtn, scaledUi.zoomBtn]} onPress={() => zoomBy(1.2)}>
-          <Text style={[styles.zoomText, scaledUi.zoomText]}>+</Text>
-        </Pressable>
-        <Pressable style={[styles.zoomBtn, scaledUi.zoomBtn]} onPress={() => zoomBy(1 / 1.2)}>
-          <Text style={[styles.zoomText, scaledUi.zoomText]}>−</Text>
-        </Pressable>
-        <Pressable
-          style={[styles.zoomBtn, styles.zoomCenterBtn, scaledUi.zoomCenterBtn]}
-          onPress={recenterCurrentView}
-        >
-          <Text style={[styles.zoomCenterText, scaledUi.zoomCenterText]}>{t('pedigree.center')}</Text>
-        </Pressable>
-      </View>
 
       {/* 액션 시트(추가/삭제) */}
       <Modal
@@ -1937,7 +1944,7 @@ const styles = StyleSheet.create({
   zoomBox: {
     position: 'absolute',
     right: 16,
-    bottom: 18,
+    top: 16,
     gap: 10,
   },
   zoomBtn: {
